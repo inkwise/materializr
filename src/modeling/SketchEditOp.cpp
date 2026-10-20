@@ -35,6 +35,24 @@ bool SketchEditOp::undo(Document& /*doc*/) {
     return true;
 }
 
+bool SketchEditOp::onlyFillsChanged() const {
+    if (!m_before || !m_after) return false;
+    if (m_before->getFillAnchors() == m_after->getFillAnchors()) return false;
+    // regionKey hashes the plane and every element (ids, points, radii,
+    // construction flags) - all the geometry anything is built from.
+    if (m_before->regionKey() != m_after->regionKey()) return false;
+    const auto& cb = m_before->getConstraints();
+    const auto& ca = m_after->getConstraints();
+    if (cb.size() != ca.size()) return false;
+    for (size_t i = 0; i < cb.size(); ++i)
+        if (cb[i].id != ca[i].id || cb[i].type != ca[i].type ||
+            cb[i].entityA != ca[i].entityA || cb[i].entityB != ca[i].entityB ||
+            cb[i].value != ca[i].value || cb[i].valueY != ca[i].valueY ||
+            cb[i].isDriving != ca[i].isDriving)
+            return false;
+    return true;
+}
+
 // Helper: human-friendly name for a ConstraintType. Used in descriptions.
 static const char* constraintName(ConstraintType t) {
     switch (t) {
@@ -217,6 +235,13 @@ std::string SketchEditOp::description() const {
 
     // Anything else - fall back to the generic element-count diff.
     int delta = m_after->elementCount() - m_before->elementCount();
+    // A Fill-tool click changes only the cosmetic fill anchors.
+    if (delta == 0) {
+        const size_t fb = m_before->getFillAnchors().size();
+        const size_t fa = m_after->getFillAnchors().size();
+        if (fa > fb) return "Fill region";
+        if (fa < fb) return "Clear fill";
+    }
     if (delta > 0) return "Add sketch element";
     if (delta < 0) return "Remove sketch element";
     return "Modify sketch";
@@ -312,6 +337,11 @@ static void writeSketchBody(std::ostream& os, const Sketch& sk, int sketchId,
            << " " << (c.isDriving ? 1 : 0)
            << " " << c.orientX << " " << c.orientY << "\n";
     }
+
+    // Cosmetic fills - so undoing past a fill toggle survives a save/reload.
+    const auto& fills = sk.getFillAnchors();
+    os << "FILL_COUNT " << fills.size() << "\n";
+    for (glm::vec2 a : fills) os << "FILL " << a.x << " " << a.y << "\n";
 
     os << "SKETCH_END\n";
 }

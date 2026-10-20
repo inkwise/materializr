@@ -49,6 +49,7 @@
 #include "viewport/SectionView.h" // SectionView::Result (async section compute)
 #include "core/SheetSpec.h" // for SheetMaterial (m_unfoldMaterial)
 #include "io/Settings.h" // for AppSettings::RecentProject (m_recentProjects)
+#include "io/SketchExportOptions.h"
 #include <cstddef>   // size_t
 
 // Global (non-namespaced) op, forward-declared for configureFaceOp's signature.
@@ -301,8 +302,13 @@ private:
     // print-in-place assembly is several bodies that must stay put).
     void exportBodiesAs(const std::vector<int>& bodyIds,
                         const std::string& formatName);
-    void exportSketchAsSvg(int sketchId);
-    void exportSketchAsDxf(int sketchId);
+    // Items-panel "Export as SVG/DXF": straight to the file dialog, or - when
+    // the sketch has Fill-tool regions - through a small options dialog first
+    // (renderSketchExportDialog) so the fill colour can be chosen.
+    void requestSketchExport(int sketchId, bool dxf);
+    void renderSketchExportDialog();
+    void exportSketchAsSvg(int sketchId, const SketchExportOptions& opts);
+    void exportSketchAsDxf(int sketchId, const SketchExportOptions& opts);
     // Zoom-fit the camera onto the selection (or all visible bodies when
     // nothing is selected). Bound to F and View > Frame Selection - the menu
     // item is the touch path.
@@ -705,9 +711,17 @@ private:
         // off-thread, so it could not be matched to a region yet.
         bool regionsPending = false;
     };
+    // onlySketchId >= 0 tests that one sketch and ignores every other
+    // (the Fill tool picks inside the sketch being edited, never a sketch
+    // that happens to sit in front of it).
     SketchRegionHit pickSketchRegion(float screenX, float screenY,
                                      float vpW, float vpH,
-                                     bool buildIfCold = true) const;
+                                     bool buildIfCold = true,
+                                     int onlySketchId = -1) const;
+    // Fill tool: toggle the cosmetic fill of the active sketch's region under
+    // the viewport-local point, as one undoable sketch edit. Never publishes
+    // SketchEditedEvent - a fill changes nothing a body is built from.
+    void toggleSketchFillAt(float localX, float localY, float vpW, float vpH);
     // Thin delegates - the tool lives in PushPullController now (slice 2).
     // NB: no blanket m_meshesDirty here. Push/Pull's preview marks only the
     // bodies it touched (markPreviewDirty) - a full rebuild per frame is both
@@ -962,6 +976,16 @@ private:
     // Hovered sketch region (for highlight in viewport)
     int m_hoveredSketchId = -1;
     int m_hoveredRegionIndex = -1;
+    // Fill tool: the active sketch's region under the cursor (-1 none), and
+    // whether a left press started in the viewport in Fill mode - the toggle
+    // happens on a release that didn't drag, so an orbit/pan never fills.
+    int  m_fillHoverRegion = -1;
+    bool m_fillPressArmed = false;
+    // Sketch export options dialog: a pending request (open latches the
+    // popup once) and the remembered choice, persisted in the settings.
+    struct SketchExportRequest { bool open = false; int sketchId = -1; bool dxf = false; };
+    SketchExportRequest m_sketchExportReq;
+    bool m_exportGreyFills = true;
 
     // Numeric dimension input shown while placing a sketch shape
     char m_sketchDimBuf[32] = "";

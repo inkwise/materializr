@@ -264,8 +264,8 @@ void Application::renderImTouchLayout() {
             if (touchui::pillButton("snap", MZ_ICON_GUIDES, snapLbl,
                                     m_snapToGrid))
                 ImGui::OpenPopup("SnapSettings");
-            tip(m_snapToGrid ? "Snap ON - tap for step / toggle"
-                             : "Snap off - tap for step / toggle");
+            tip(materializr::tr(m_snapToGrid ? "Snap ON - tap for step / toggle"
+                                             : "Snap off - tap for step / toggle"));
             renderSnapSettingsPopup();
             ImGui::SameLine(0.0f, 8.0f * s);
         }
@@ -276,8 +276,9 @@ void Application::renderImTouchLayout() {
             m_imTouchTree = !m_imTouchTree;
             saveAppSettings();
         }
-        tip(m_imTouchTree ? "Hide the model tree"
-                          : "Show the model tree (bodies, sketches, construction)");
+        tip(materializr::tr(m_imTouchTree
+                ? "Hide the model tree"
+                : "Show the model tree (bodies, sketches, construction)"));
         ImGui::SameLine(0.0f, 8.0f * s);
         const bool histLocked = anyInteractivePreviewActive();
         ImGui::BeginDisabled(histLocked || !touchCanUndo());
@@ -367,7 +368,7 @@ void Application::renderImTouchLayout() {
                                   glm::vec3 cur, glm::vec3& out) -> bool {
                 bool changed = false;
                 if (ImGui::BeginPopup(popupId)) {
-                    ImGui::TextUnformatted(title);
+                    ImGui::TextUnformatted(materializr::tr(title));
                     ImGui::SetNextItemWidth(materializr::uiSz(220, 0).x);
                     if (ImGui::ColorPicker3(
                             "##pick", &cur.x,
@@ -902,6 +903,7 @@ void Application::renderImTouchLayout() {
                         importers.push_back(&t); break;
                     case ToolAction::Trim:
                     case ToolAction::SketchOffset:
+                    case ToolAction::SketchFill:
                     case ToolAction::SketchCopy:
                     case ToolAction::SketchMirror:
                     case ToolAction::SketchLinearPattern:
@@ -916,8 +918,8 @@ void Application::renderImTouchLayout() {
                     }
                 }
                 group("modifyGroup", "##sketchModify", MZ_ICON_TRIM, "Modify",
-                      "Modify tools: trim, copy, mirror, linear and circular "
-                      "patterns",
+                      "Modify tools: trim, offset, fill, copy, mirror, linear "
+                      "and circular patterns",
                       modify);
                 group("importGroup", "##sketchImport", MZ_ICON_SVG, "Import",
                       "Bring outside artwork into the sketch: an SVG outline or "
@@ -960,9 +962,9 @@ void Application::renderImTouchLayout() {
                 else
                     ImGui::OpenPopup("Discard sketch?"); // confirm - destructive
             }
-            tip(toolRunning
+            tip(materializr::tr(toolRunning
                     ? "Cancel the in-progress shape"
-                    : "Throw the sketch away and leave (asks to confirm)");
+                    : "Throw the sketch away and leave (asks to confirm)"));
             ImGui::SameLine(0.0f, 18.0f * s); // deliberate gap: no stray discards
             ImGui::SetCursorPosY(topY);
             if (touchui::fab("finishSk", MZ_ICON_FINISH, fabD)) {
@@ -978,9 +980,9 @@ void Application::renderImTouchLayout() {
                 else
                     handleToolAction(static_cast<int>(ToolAction::FinishSketch));
             }
-            tip(toolRunning
+            tip(materializr::tr(toolRunning
                     ? "Finish the current shape, keeping the points placed"
-                    : "Finish the sketch and leave sketch mode");
+                    : "Finish the sketch and leave sketch mode"));
             if (ImGui::BeginPopupModal("Discard sketch?", nullptr,
                                        ImGuiWindowFlags_AlwaysAutoResize)) {
                 ImGui::TextUnformatted(
@@ -1032,9 +1034,13 @@ void Application::renderImTouchLayout() {
                     (m_selection->hasSelectedFaces() ||
                      m_selection->primaryType() == SelectionType::Plane);
                 if (faceOrPlaneSel) {
-                    if (ImGui::MenuItem(MZ_ICON_SKETCH "  Sketch on selection"))
+                    if (ImGui::MenuItem((std::string(MZ_ICON_SKETCH "  ") +
+                                      materializr::tr("Sketch on selection") +
+                                      "###SketchOnSelection").c_str()))
                         handleToolAction(static_cast<int>(ToolAction::SketchOnFace));
-                } else if (ImGui::BeginMenu(MZ_ICON_SKETCH "  New Sketch")) {
+                } else if (ImGui::BeginMenu((std::string(MZ_ICON_SKETCH "  ") +
+                                           materializr::tr("New Sketch") +
+                                           "###NewSketchMenu").c_str())) {
                     if (ImGui::MenuItem(materializr::tr("XY plane")))
                         handleToolAction(static_cast<int>(ToolAction::StartSketchXY));
                     if (ImGui::MenuItem(materializr::tr("XZ plane")))
@@ -1044,7 +1050,9 @@ void Application::renderImTouchLayout() {
                     ImGui::EndMenu();
                 }
                 if (m_pluginContext &&
-                    ImGui::BeginMenu(MZ_ICON_PRIMITIVE "  Primitive")) {
+                    ImGui::BeginMenu((std::string(MZ_ICON_PRIMITIVE "  ") +
+                                    materializr::tr("Primitive") +
+                                    "###PrimitiveMenu").c_str())) {
                     if (ImGui::MenuItem(materializr::tr("Box")))
                         m_pluginContext->requestInteractiveOp(InteractiveOp::PrimitiveBox);
                     if (ImGui::MenuItem(materializr::tr("Cylinder")))
@@ -1057,7 +1065,9 @@ void Application::renderImTouchLayout() {
                         m_pluginContext->requestInteractiveOp(InteractiveOp::PrimitiveTorus);
                     ImGui::EndMenu();
                 }
-                if (ImGui::BeginMenu(MZ_ICON_FOCUS "  Construction")) {
+                if (ImGui::BeginMenu((std::string(MZ_ICON_FOCUS "  ") +
+                                      materializr::tr("Construction") +
+                                      "###ConstructionMenu").c_str())) {
                     renderConstructionMenuItems();
                     ImGui::EndMenu();
                 }
@@ -1105,8 +1115,8 @@ void Application::renderImTouchLayout() {
                 m_imTouchTimeline = !m_imTouchTimeline;
                 saveAppSettings();
             }
-            tip(m_imTouchTimeline ? "Hide the history timeline"
-                                  : "Show the history timeline");
+            tip(materializr::tr(m_imTouchTimeline ? "Hide the history timeline"
+                                                  : "Show the history timeline"));
         }
         ImGui::End();
         ImGui::PopStyleVar();
@@ -1292,7 +1302,7 @@ void Application::renderImTouchLayout() {
                     ImGui::EndDisabled();
                     ImGui::SameLine();
                     ImGui::BeginDisabled(histLocked);
-                    if (ImGui::Button(op->isEnabled() ? "Disable" : "Enable",
+                    if (ImGui::Button(materializr::tr(op->isEnabled() ? "Disable" : "Enable"),
                                       ImVec2(bw, 44.0f * s))) {
                         // In-place toggle - preserves base bodies the op
                         // modifies (replayAll's doc.clear() would drop them).

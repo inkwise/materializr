@@ -277,6 +277,8 @@ src/modeling/Sketch.cpp: // few 1e-6 mm to 1e-4 mm off it - not exactly on it, w
 src/modeling/Sketch.cpp: // 194 sliver regions (< 0.01 mm^2) beside the 5 real ones, and made a Push/Pull
 src/modeling/Sketch.cpp: // cut through the plate remove 3.5 mm^3 instead of ~1138 mm^3. 1e-3 mm is
 src/modeling/Sketch.cpp: // ~16x float32 resolution at 1000 mm, and far below anything a print or a
+src/modeling/Sketch.cpp: // ~0.2 mm chords: on a 1 mm radius that is a 0.005 mm sag.
+src/modeling/Sketch.h: // (chord error well under 0.01 mm at ordinary sizes).
 src/modeling/SketchConstraints.h: // dimension label rather than clicking it. Pixels rather than sketch mm because
 src/modeling/SketchOffset.cpp: // comfortably more than 1e-3 mm - so an analytic epsilon condemns perfectly
 src/modeling/SketchOffset.cpp: // accept the (sub-0.1 mm) deviation that comes with it.

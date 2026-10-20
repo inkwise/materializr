@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -10,11 +11,31 @@
 
 namespace materializr {
 
+namespace {
+// AutoCAD Color Index: 7 = white/black (whichever contrasts), 8 = dark grey.
+constexpr int kAciDefault = 7;
+constexpr int kAciGrey = 8;
+} // namespace
+
 // R12 (AC1009) ASCII: the lowest common denominator every laser-cutter and
 // CAM package reads. Minimal file = HEADER ($ACADVER + $INSUNITS mm) and an
-// ENTITIES section - R12 needs no TABLES for entities on layer 0.
-DxfExportResult DxfExport::exportSketch(const std::string& filePath, const Sketch& sketch) {
+// ENTITIES section - R12 needs no TABLES for entities on layer 0. A TABLES
+// section (LTYPE + LAYER) is added only when there are fills, to name the
+// FILL layer and its colour.
+DxfExportResult DxfExport::exportSketch(const std::string& filePath, const Sketch& sketch,
+                                        const SketchExportOptions& opts) {
     DxfExportResult result;
+
+    // Filled regions as closed loops (outer + holes), resolved before the
+    // file is opened so a sketch with nothing to write never leaves one.
+    std::vector<std::vector<std::vector<glm::vec2>>> fills;
+    if (sketch.hasFills()) {
+        const auto regions = sketch.buildRegions();
+        for (int idx : sketch.filledRegions(regions)) {
+            auto loops = sketch.regionLoops2D(regions[idx]);
+            if (!loops.empty()) fills.push_back(std::move(loops));
+        }
+    }
 
     std::FILE* f = std::fopen(filePath.c_str(), "wb");
     if (!f) {
@@ -31,6 +52,21 @@ DxfExportResult DxfExport::exportSketch(const std::string& filePath, const Sketc
     tag(9, "$ACADVER"); tag(1, "AC1009");
     tag(9, "$INSUNITS"); tagi(70, 4); // 4 = millimeters
     tag(0, "ENDSEC");
+
+    const int fillAci = opts.greyFills ? kAciGrey : kAciDefault;
+    if (!fills.empty()) {
+        tag(0, "SECTION"); tag(2, "TABLES");
+        tag(0, "TABLE"); tag(2, "LTYPE"); tagi(70, 1);
+        tag(0, "LTYPE"); tag(2, "CONTINUOUS"); tagi(70, 0);
+        tag(3, "Solid line"); tagi(72, 65); tagi(73, 0); tagd(40, 0.0);
+        tag(0, "ENDTAB");
+        tag(0, "TABLE"); tag(2, "LAYER"); tagi(70, 2);
+        tag(0, "LAYER"); tag(2, "0");    tagi(70, 0); tagi(62, kAciDefault); tag(6, "CONTINUOUS");
+        tag(0, "LAYER"); tag(2, "FILL"); tagi(70, 0); tagi(62, fillAci);     tag(6, "CONTINUOUS");
+        tag(0, "ENDTAB");
+        tag(0, "ENDSEC");
+    }
+
     tag(0, "SECTION"); tag(2, "ENTITIES");
 
     int count = 0;
@@ -86,6 +122,26 @@ DxfExportResult DxfExport::exportSketch(const std::string& filePath, const Sketc
         }
         tag(0, "SEQEND");
         ++count;
+    }
+
+    // Fills go last. Each loop is a CLOSED polyline (flag 70 = 1) and traces
+    // the same boundary as the outlines above, which is why it lives on its
+    // own layer: a reader can switch it off or give it a different operation.
+    // The colour is also set on the entity itself, because not every reader
+    // consults the layer table for it.
+    for (const auto& loops : fills) {
+        for (const auto& loop : loops) {
+            tag(0, "POLYLINE"); tag(8, "FILL");
+            if (opts.greyFills) tagi(62, kAciGrey);
+            tagi(66, 1); tagi(70, 1);
+            for (const glm::vec2& p : loop) {
+                tag(0, "VERTEX"); tag(8, "FILL");
+                tagd(10, p.x); tagd(20, p.y); tagd(30, 0.0);
+            }
+            tag(0, "SEQEND"); tag(8, "FILL");
+            ++count;
+            ++result.fillCount;
+        }
     }
 
     tag(0, "ENDSEC");

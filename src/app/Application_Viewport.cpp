@@ -1108,6 +1108,32 @@ void Application::renderViewport() {
                 if (c->active()) c->drawGizmos3D(g3d);
         }
 
+        // Cosmetic region fills (Fill tool), under the sketch lines so the
+        // outlines stay crisp. Display/export only. Cold regions (just
+        // loaded, or mid-edit) build off-thread and the fill appears when
+        // they land - never a main-thread fuse from the draw loop.
+        {
+            const glm::vec3 fillColor(0.10f, 0.35f, 0.95f); // sketch cobalt
+            auto drawFills = [&](const Sketch& sk) {
+                if (!sk.hasFills()) return;
+                if (!sk.regionsCached() && !(m_regionWorker && m_regionWorker->ensure(sk)))
+                    return;
+                const std::vector<int> filled = sk.filledRegionsCached();
+                if (filled.empty()) return;
+                const auto regions = sk.buildRegions();   // cache hit
+                std::vector<TopoDS_Face> faces;
+                faces.reserve(filled.size());
+                for (int idx : filled) faces.push_back(regions[idx].face);
+                m_sketchRenderer->renderFacesFill(faces, fillColor, 0.45f, view, proj);
+            };
+            for (int sid : m_document->getAllSketchIds()) {
+                if (!m_document->isSketchVisible(sid)) continue;
+                if (m_inSketchMode && sid == m_activeSketchId) continue;
+                if (auto sk = m_document->getSketch(sid)) drawFills(*sk);
+            }
+            if (m_inSketchMode && m_activeSketch) drawFills(*m_activeSketch);
+        }
+
         // Render all stored sketches (visible only) plus the active sketch
         for (int sid : m_document->getAllSketchIds()) {
             if (!m_document->isSketchVisible(sid)) continue;
@@ -1271,6 +1297,13 @@ void Application::renderViewport() {
         // selection loop above: skip the sketch actually being edited.
         if (!(m_inSketchMode && m_hoveredSketchId == m_activeSketchId)) {
             highlightRegion(m_hoveredSketchId, m_hoveredRegionIndex,
+                            glm::vec3(0.2f, 0.9f, 1.0f), 3.0f, 0.12f);
+        }
+        // Fill tool: the region a click would fill/clear, same cyan. Only set
+        // from a cache-hit pick (m_fillHoverRegion), so this never builds.
+        if (m_inSketchMode && m_sketchTool &&
+            m_sketchTool->getMode() == SketchToolMode::Fill && m_fillHoverRegion >= 0) {
+            highlightRegion(m_activeSketchId, m_fillHoverRegion,
                             glm::vec3(0.2f, 0.9f, 1.0f), 3.0f, 0.12f);
         }
 
@@ -5804,6 +5837,18 @@ void Application::renderViewport() {
                 float localY = mousePos.y - winPos.y;
                 glm::vec2 sketchCoord = screenToSketch(localX, localY, contentSize.x, contentSize.y);
 
+                // Fill tool hover: which of the active sketch's regions a click
+                // would toggle. buildIfCold=false - hover only queues a build.
+                m_fillHoverRegion = -1;
+                if (m_sketchTool->getMode() == SketchToolMode::Fill) {
+                    const SketchRegionHit fh = pickSketchRegion(
+                        localX, localY, contentSize.x, contentSize.y,
+                        /*buildIfCold=*/false, m_activeSketchId);
+                    if (fh.sketchId == m_activeSketchId) m_fillHoverRegion = fh.regionIndex;
+                } else {
+                    m_fillPressArmed = false;
+                }
+
                 // Sketch pattern axis-origin picker. While the radial sketch
                 // pattern popup is asking for an origin, the next click in
                 // the sketch viewport sets it (snapped to the sketch grid)
@@ -6488,6 +6533,10 @@ void Application::renderViewport() {
                         // it. Snapshot manually for the drag-commit on mouse-up.
                         m_sketchDragBefore = std::make_shared<Sketch>(*m_activeSketch);
                         recordSketchMutation([&]{ m_sketchTool->onMouseDown(sketchCoord, io.KeyCtrl); });
+                    } else if (m_sketchTool->getMode() == SketchToolMode::Fill) {
+                        // Arm only: the release below toggles, so a press that
+                        // turns into an orbit / pan / pinch fills nothing.
+                        m_fillPressArmed = true;
                     } else if (m_sketchTool->getMode() == SketchToolMode::Dimension) {
                         // Picking mutates nothing - no undo record. The commit
                         // below records the constraint add as one SketchEditOp.
@@ -6679,6 +6728,17 @@ void Application::renderViewport() {
                             m_sketchTool->setSelectionFull(selPts, selLns, selCircs, selArcs, selSpls);
                         }
                     }
+                }
+
+                if (m_fillPressArmed && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                    m_fillPressArmed = false;
+                    // Same tap slop as the touch draw tools; tighter for a mouse.
+                    const float slop = (materializr::touchMode() ? 12.0f : 5.0f) *
+                                       (m_window ? m_window->uiScale() : 1.0f);
+                    const bool dragged =
+                        io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] > slop * slop;
+                    if (!dragged && !(m_window && m_window->lastLeftReleaseWasGesture()))
+                        toggleSketchFillAt(localX, localY, contentSize.x, contentSize.y);
                 }
 
                 if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !m_sketchBoxSelectActive) {
@@ -7266,11 +7326,11 @@ void Application::renderViewport() {
                 m_contextMenuSketchId = -1;
             }
             if (ImGui::MenuItem(materializr::tr("Export as SVG…"))) {
-                exportSketchAsSvg(sid);
+                requestSketchExport(sid, false);
                 m_contextMenuSketchId = -1;
             }
             if (ImGui::MenuItem(materializr::tr("Export as DXF…"))) {
-                exportSketchAsDxf(sid);
+                requestSketchExport(sid, true);
                 m_contextMenuSketchId = -1;
             }
             ImGui::Separator();

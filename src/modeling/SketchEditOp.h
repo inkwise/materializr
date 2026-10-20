@@ -50,6 +50,11 @@ public:
     void getEditedElements(std::set<int>& lines, std::set<int>& circles,
                            std::set<int>& arcs) const;
 
+    // True when the step changed only the cosmetic fill anchors (a Fill-tool
+    // click): same geometry, same constraints. Nothing a body is built from
+    // moved, so undo/redo must not cascade it into a body rebuild.
+    bool onlyFillsChanged() const;
+
     // Accessors for the ProjectIO factory.
     std::shared_ptr<Sketch> getBeforeSnapshot() const { return m_before; }
     std::shared_ptr<Sketch> getAfterSnapshot() const  { return m_after;  }

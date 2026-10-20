@@ -38,6 +38,10 @@ void dispatchUndoRedoCascade(int appliedIdx, const Operation* appliedOp,
                              const Document& doc, int activeSketchId,
                              Cascade&& cascade) {
     if (appliedIdx < 0) return; // nothing was actually applied - never cascade
+    // A Fill-tool step moved no geometry: neither its sketch nor the active
+    // one has anything new to push into a body.
+    if (auto* se = dynamic_cast<const SketchEditOp*>(appliedOp); se && se->onlyFillsChanged())
+        return;
     int cascaded = -1;
     if (activeSketchId >= 0) {
         cascade(activeSketchId);

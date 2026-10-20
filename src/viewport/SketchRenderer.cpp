@@ -1264,33 +1264,42 @@ void SketchRenderer::renderRegionFill(const Sketch* sketch, int regionIndex,
     auto regions = sketch->buildRegions();
     if (regionIndex < 0 || regionIndex >= static_cast<int>(regions.size()))
         return;
-    const TopoDS_Face& face = regions[regionIndex].face;
-    if (face.IsNull()) return;
+    renderFacesFill({regions[regionIndex].face}, color, alpha, view, projection);
+}
 
-    // Triangulate (cheap for planar faces; the mesher caches on the shape,
-    // and buildRegions itself is cached, so repeated frames cost ~nothing).
-    TopLoc_Location loc;
-    Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
-    if (tri.IsNull()) {
-        try {
-            BRepMesh_IncrementalMesh mesher(face, materializr::meshParams(0.2, 0.5, false));
-            tri = BRep_Tool::Triangulation(face, loc);
-        } catch (...) {}
-        if (tri.IsNull()) return;
-    }
-
+void SketchRenderer::renderFacesFill(const std::vector<TopoDS_Face>& faces,
+                                     const glm::vec3& color, float alpha,
+                                     const glm::mat4& view,
+                                     const glm::mat4& projection) {
+    if (!m_program) return;
     std::vector<float> verts;
-    verts.reserve(static_cast<size_t>(tri->NbTriangles()) * 9);
-    const gp_Trsf& trsf = loc.Transformation();
-    for (int i = 1; i <= tri->NbTriangles(); ++i) {
-        Poly_Triangle t = tri->Triangle(i);
-        int a, b, c;
-        t.Get(a, b, c);
-        for (int n : {a, b, c}) {
-            gp_Pnt p = tri->Node(n).Transformed(trsf);
-            verts.push_back(static_cast<float>(p.X()));
-            verts.push_back(static_cast<float>(p.Y()));
-            verts.push_back(static_cast<float>(p.Z()));
+    for (const TopoDS_Face& face : faces) {
+        if (face.IsNull()) continue;
+
+        // Triangulate (cheap for planar faces; the mesher caches on the shape,
+        // and buildRegions itself is cached, so repeated frames cost ~nothing).
+        TopLoc_Location loc;
+        Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
+        if (tri.IsNull()) {
+            try {
+                BRepMesh_IncrementalMesh mesher(face, materializr::meshParams(0.2, 0.5, false));
+                tri = BRep_Tool::Triangulation(face, loc);
+            } catch (...) {}
+            if (tri.IsNull()) continue;
+        }
+
+        verts.reserve(verts.size() + static_cast<size_t>(tri->NbTriangles()) * 9);
+        const gp_Trsf& trsf = loc.Transformation();
+        for (int i = 1; i <= tri->NbTriangles(); ++i) {
+            Poly_Triangle t = tri->Triangle(i);
+            int a, b, c;
+            t.Get(a, b, c);
+            for (int n : {a, b, c}) {
+                gp_Pnt p = tri->Node(n).Transformed(trsf);
+                verts.push_back(static_cast<float>(p.X()));
+                verts.push_back(static_cast<float>(p.Y()));
+                verts.push_back(static_cast<float>(p.Z()));
+            }
         }
     }
     if (verts.empty()) return;

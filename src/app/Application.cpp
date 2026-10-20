@@ -393,8 +393,8 @@ Application::Application(bool safeMode, float uiScaleOverride)
     m_itemsPanel->setSendToTabCallback(
         [this](const std::vector<int>& ids, size_t idx) { sendBodiesToTab(ids, idx); });
     m_itemsPanel->setEditSketchCallback([this](int sketchId) { editSketch(sketchId); });
-    m_itemsPanel->setExportSketchSvgCallback([this](int sketchId) { exportSketchAsSvg(sketchId); });
-    m_itemsPanel->setExportSketchDxfCallback([this](int sketchId) { exportSketchAsDxf(sketchId); });
+    m_itemsPanel->setExportSketchSvgCallback([this](int sketchId) { requestSketchExport(sketchId, false); });
+    m_itemsPanel->setExportSketchDxfCallback([this](int sketchId) { requestSketchExport(sketchId, true); });
     m_itemsPanel->setDeleteSketchCallback([this](int sketchId) { deleteSketch(sketchId); });
     m_itemsPanel->setDuplicateSketchCallback([this](int sketchId) { duplicateSketch(sketchId); });
     m_itemsPanel->setExportSketchToProjectCallback(
@@ -2079,6 +2079,7 @@ AppSettings Application::currentSettings() const {
     s.inferenceLevel = m_sketchTool
         ? static_cast<int>(m_sketchTool->getInferenceLevel()) : 0;
     s.showInferenceToolbarToggle = m_showInferenceToolbarToggle;
+    s.exportGreyFills = m_exportGreyFills;
     s.showSelectionMeasurements = m_showSelectionMeasurements;
     s.angleSnapDeg = m_sketchTool ? m_sketchTool->getAngleSnapDeg() : 15;
     s.stlImportAccuracy = m_stlImportAccuracy;
@@ -2170,6 +2171,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     // applied above (applyDisplayUnitChange) before this runs.
     m_sketchGridStep = static_cast<float>(materializr::toMm(s.sketchGridStep));
     m_showInferenceToolbarToggle = s.showInferenceToolbarToggle;
+    m_exportGreyFills = s.exportGreyFills;
     m_showSelectionMeasurements = s.showSelectionMeasurements;
     m_stlImportAccuracy = s.stlImportAccuracy;
     m_meshShowWireframe = s.meshShowWireframe;
@@ -2474,6 +2476,9 @@ void Application::handleToolAction(int action) {
             break;
         case ToolAction::SketchOffset:
             if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Offset);
+            break;
+        case ToolAction::SketchFill:
+            if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Fill);
             break;
         case ToolAction::SketchDimension:
             if (m_inSketchMode) toggleSketchMode(m_sketchTool.get(), SketchToolMode::Dimension);
@@ -5362,7 +5367,81 @@ void Application::exportBodiesAs(const std::vector<int>& bodyIds,
 #endif
 }
 
-void Application::exportSketchAsSvg(int sketchId) {
+void Application::requestSketchExport(int sketchId, bool dxf) {
+    if (!m_document || sketchId < 0) return;
+    auto sketch = m_document->getSketch(sketchId);
+    if (!sketch) return;
+    SketchExportOptions opts;
+    opts.greyFills = m_exportGreyFills;
+    // Nothing to choose without fills: straight to the file dialog, as before.
+    if (!sketch->hasFills()) {
+        if (dxf) exportSketchAsDxf(sketchId, opts);
+        else     exportSketchAsSvg(sketchId, opts);
+        return;
+    }
+    // The export needs the sketch's regions. Start building them off-thread
+    // now; the dialog gives the build the time it takes to be read.
+    if (m_regionWorker) m_regionWorker->ensure(*sketch);
+    m_sketchExportReq = {true, sketchId, dxf};
+}
+
+void Application::renderSketchExportDialog() {
+    if (m_sketchExportReq.open) {
+        ImGui::OpenPopup("###SketchExport");
+        m_sketchExportReq.open = false; // OpenPopup latches; call it once per request
+    }
+    const std::string title =
+        std::string(materializr::tr(m_sketchExportReq.dxf ? "Export Sketch as DXF"
+                                                          : "Export Sketch as SVG")) +
+        "###SketchExport";
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
+                            ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    auto sk = m_document ? m_document->getSketch(m_sketchExportReq.sketchId) : nullptr;
+    if (!sk) { // deleted while the dialog was up
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+
+    const int filled = sk->regionsCached()
+        ? static_cast<int>(sk->filledRegionsCached().size())
+        : static_cast<int>(sk->getFillAnchors().size());
+    ImGui::Text(materializr::trf("Filled regions: %d"), filled);
+    if (ImGui::Checkbox(materializr::tr("Fills in grey"), &m_exportGreyFills))
+        saveAppSettings();
+    if (ImGui::BeginItemTooltip()) {
+        ImGui::PushTextWrapPos(materializr::uiSz(340, 0).x);
+        ImGui::TextUnformatted(materializr::tr(
+            "Writes filled regions in grey so they stay distinct from the black "
+            "outlines. Laser software can give each colour or layer its own "
+            "operation, e.g. cut the outlines and engrave the grey. In SVG a "
+            "fill is a solid shape; DXF has no solid fill, so it is written as "
+            "closed outlines on a separate FILL layer. Off: fills keep the "
+            "outline colour."));
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button(materializr::tr("Export"), materializr::uiSz(110, 0))) {
+        SketchExportOptions opts;
+        opts.greyFills = m_exportGreyFills;
+        const int id = m_sketchExportReq.sketchId;
+        const bool dxf = m_sketchExportReq.dxf;
+        ImGui::CloseCurrentPopup();
+        if (dxf) exportSketchAsDxf(id, opts);
+        else     exportSketchAsSvg(id, opts);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(materializr::tr("Cancel"), materializr::uiSz(110, 0)))
+        ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+void Application::exportSketchAsSvg(int sketchId, const SketchExportOptions& opts) {
     if (!m_document || sketchId < 0) return;
     auto sketch = m_document->getSketch(sketchId);
     if (!sketch) return;
@@ -5381,11 +5460,11 @@ void Application::exportSketchAsSvg(int sketchId) {
 
 #if defined(MZ_MOBILE)
     FileDialogs::mobileExportShareOrSave(defaultFile, "image/svg+xml",
-        [sk](const std::string& path) {
-            auto result = materializr::SvgExport::exportSketch(path, *sk);
+        [sk, opts](const std::string& path) {
+            auto result = materializr::SvgExport::exportSketch(path, *sk, opts);
             if (result.success)
-                std::fprintf(stdout, "Exported %d curve(s) to %s\n",
-                             result.curveCount, path.c_str());
+                std::fprintf(stdout, "Exported %d curve(s), %d fill(s) to %s\n",
+                             result.curveCount, result.fillCount, path.c_str());
             else
                 std::fprintf(stderr, "SVG export failed: %s\n", result.errorMessage.c_str());
             return result.success;
@@ -5393,14 +5472,14 @@ void Application::exportSketchAsSvg(int sketchId) {
 #else
     FileDialogs::saveFile("Export Sketch to SVG", defaultFile,
         {{"SVG Files", "*.svg"}},
-        [sk](std::string path) {
+        [sk, opts](std::string path) {
             if (path.empty()) return;
             // Keep the .svg extension - the picker doesn't force it.
             if (std::filesystem::path(path).extension() != ".svg") path += ".svg";
-            auto result = materializr::SvgExport::exportSketch(path, *sk);
+            auto result = materializr::SvgExport::exportSketch(path, *sk, opts);
             if (result.success) {
-                std::fprintf(stdout, "Exported %d curve(s) to %s\n",
-                             result.curveCount, path.c_str());
+                std::fprintf(stdout, "Exported %d curve(s), %d fill(s) to %s\n",
+                             result.curveCount, result.fillCount, path.c_str());
             } else {
                 std::fprintf(stderr, "SVG export failed: %s\n",
                              result.errorMessage.c_str());
@@ -5409,7 +5488,7 @@ void Application::exportSketchAsSvg(int sketchId) {
 #endif
 }
 
-void Application::exportSketchAsDxf(int sketchId) {
+void Application::exportSketchAsDxf(int sketchId, const SketchExportOptions& opts) {
     // The SVG twin (above) for the CAM/laser-cutter world: R12 DXF entities
     // in millimeters. Same name derivation and dialog flow.
     if (!m_document || sketchId < 0) return;
@@ -5427,8 +5506,8 @@ void Application::exportSketchAsDxf(int sketchId) {
 
 #if defined(MZ_MOBILE)
     FileDialogs::mobileExportShareOrSave(defaultFile, "application/dxf",
-        [sk](const std::string& path) {
-            auto result = materializr::DxfExport::exportSketch(path, *sk);
+        [sk, opts](const std::string& path) {
+            auto result = materializr::DxfExport::exportSketch(path, *sk, opts);
             if (result.success)
                 std::fprintf(stdout, "Exported %d DXF entit%s to %s\n",
                              result.entityCount,
@@ -5440,10 +5519,10 @@ void Application::exportSketchAsDxf(int sketchId) {
 #else
     FileDialogs::saveFile("Export Sketch to DXF", defaultFile,
         {{"DXF Files", "*.dxf"}},
-        [sk](std::string path) {
+        [sk, opts](std::string path) {
             if (path.empty()) return;
             if (std::filesystem::path(path).extension() != ".dxf") path += ".dxf";
-            auto result = materializr::DxfExport::exportSketch(path, *sk);
+            auto result = materializr::DxfExport::exportSketch(path, *sk, opts);
             if (result.success) {
                 std::fprintf(stdout, "Exported %d DXF entit%s to %s\n",
                              result.entityCount,
@@ -6719,6 +6798,10 @@ void Application::recordSketchMutation(const std::function<void()>& mutator) {
             // recordSketchMutation skips the history push entirely.
             mix(static_cast<size_t>(c.isDriving ? 1 : 0));
         }
+        // Fill anchors: a fill toggle changes nothing else, so without them
+        // it would get no undo step.
+        mix(s.getFillAnchors().size());
+        for (glm::vec2 a : s.getFillAnchors()) mixPos(a);
         return h;
     };
     size_t beforeSig = signature(*m_activeSketch);
@@ -8079,6 +8162,7 @@ void Application::run() {
                 break;
         }
         renderSmallScreenWarning();
+        renderSketchExportDialog();
 
         if (m_renderersReady) {
             renderViewport();

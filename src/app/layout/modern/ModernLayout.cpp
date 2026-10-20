@@ -302,9 +302,9 @@ void Application::renderModernLayout() {
                 else
                     handleToolAction(static_cast<int>(ToolAction::FinishSketch));
             }
-            tip(toolRunning
+            tip(materializr::tr(toolRunning
                     ? "Finish the current shape, keeping the points placed"
-                    : "Leave sketch mode, keeping the sketch");
+                    : "Leave sketch mode, keeping the sketch"));
             ImGui::SameLine(0.0f, sp);
             ImGui::SetCursorPosY(cy);
             if (touchui::pillButton("exit", MZ_ICON_DISCARD, exitLbl)) {
@@ -315,9 +315,9 @@ void Application::renderModernLayout() {
                     // misclick can't throw the sketch away.
                     ImGui::OpenPopup("Discard sketch?");
             }
-            tip(toolRunning
+            tip(materializr::tr(toolRunning
                     ? "Cancel the in-progress shape"
-                    : "Throw the sketch away and leave (asks to confirm)");
+                    : "Throw the sketch away and leave (asks to confirm)"));
             if (ImGui::BeginPopupModal("Discard sketch?", nullptr,
                                        ImGuiWindowFlags_AlwaysAutoResize)) {
                 ImGui::TextUnformatted(
@@ -360,9 +360,10 @@ void Application::renderModernLayout() {
             m_leftPanelHidden  = next == 2;
             saveAppSettings();
         }
-        tip(focusState == 0 ? "Focus: hide the side panel (tap again for viewport only)"
+        tip(materializr::tr(
+            focusState == 0 ? "Focus: hide the side panel (tap again for viewport only)"
             : focusState == 1 ? "Focus: hide the tool rail too (viewport only)"
-                              : "Bring the panels back");
+                              : "Bring the panels back"));
         // (The ⋯ overflow menu now lives at the top-left of this bar.)
     }
     ImGui::End();

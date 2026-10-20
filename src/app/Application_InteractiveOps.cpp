@@ -355,7 +355,8 @@ void Application::cancelInteractiveExtrude() {
 
 Application::SketchRegionHit Application::pickSketchRegion(float screenX, float screenY,
                                                            float vpW, float vpH,
-                                                           bool buildIfCold) const {
+                                                           bool buildIfCold,
+                                                           int onlySketchId) const {
     SketchRegionHit hit;
     if (!m_document || !m_viewport) return hit;
 
@@ -590,16 +591,42 @@ Application::SketchRegionHit Application::pickSketchRegion(float screenX, float 
     };
 
     // Test the active sketch first (most relevant when in sketch mode)
-    if (m_activeSketch) testSketch(m_activeSketchId, *m_activeSketch);
+    if (m_activeSketch && (onlySketchId < 0 || onlySketchId == m_activeSketchId))
+        testSketch(m_activeSketchId, *m_activeSketch);
     // Then all stored sketches
     for (int sid : m_document->getAllSketchIds()) {
         if (!m_document->isSketchVisible(sid)) continue;
         if (sid == m_activeSketchId) continue;
+        if (onlySketchId >= 0 && sid != onlySketchId) continue;
         auto sk = m_document->getSketch(sid);
         if (sk) testSketch(sid, *sk);
     }
 
     return hit;
+}
+
+void Application::toggleSketchFillAt(float localX, float localY, float vpW, float vpH) {
+    if (!m_inSketchMode || !m_activeSketch || m_activeSketchId < 0) return;
+    // A click is an explicit request, so a heavy sketch's regions get built
+    // too (off-thread, like every other build) - the click just can't wait
+    // for it and says so.
+    if (!m_activeSketch->regionsCached() && m_regionWorker &&
+        !m_regionWorker->ensureWithin(*m_activeSketch, 150)) {
+        showToast(materializr::tr(
+            "Still working out this sketch's regions - they become "
+            "selectable as soon as that finishes."));
+        return;
+    }
+    const SketchRegionHit hit = pickSketchRegion(localX, localY, vpW, vpH,
+                                                 /*buildIfCold=*/false, m_activeSketchId);
+    if (hit.sketchId != m_activeSketchId || hit.regionIndex < 0) {
+        showToast(materializr::tr("Fill needs a closed region - click inside a closed shape."),
+                  2.5);
+        return;
+    }
+    const auto regions = m_activeSketch->buildRegions();   // cache hit (checked above)
+    recordSketchMutation([&] { m_activeSketch->toggleFill(regions, hit.regionIndex); });
+    markDirty();
 }
 
 

@@ -14,6 +14,7 @@
 #include <TopoDS_Compound.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <BRepAdaptor_Curve.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
 #include <BRepGProp.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
@@ -38,6 +39,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <unordered_map>
@@ -890,6 +892,7 @@ void Sketch::clear() {
     m_splines.clear();
     m_polygons.clear();
     m_constraints.clear();
+    m_fillAnchors.clear();
     m_nextId = 1;
     m_nextConstraintId = 1;
 }
@@ -1735,6 +1738,90 @@ int Sketch::regionAtAnchor(const std::vector<Region>& regions, glm::vec2 anchor)
         hit = static_cast<int>(i);
     }
     return hit;
+}
+
+bool Sketch::toggleFill(const std::vector<Region>& regions, int regionIndex) {
+    if (regionIndex < 0 || regionIndex >= static_cast<int>(regions.size())) return false;
+    // Drop EVERY anchor resolving to this region, not just the first: two
+    // regions merged by an edit (a dividing line deleted) leave both their
+    // anchors in the one survivor, and a single click must still clear it.
+    const size_t before = m_fillAnchors.size();
+    m_fillAnchors.erase(
+        std::remove_if(m_fillAnchors.begin(), m_fillAnchors.end(),
+                       [&](glm::vec2 a) { return regionAtAnchor(regions, a) == regionIndex; }),
+        m_fillAnchors.end());
+    if (m_fillAnchors.size() != before) return false;
+    m_fillAnchors.push_back(regions[regionIndex].representativePoint);
+    return true;
+}
+
+std::vector<int> Sketch::filledRegions(const std::vector<Region>& regions) const {
+    std::vector<int> out;
+    for (glm::vec2 a : m_fillAnchors) {
+        const int idx = regionAtAnchor(regions, a);
+        if (idx >= 0) out.push_back(idx);
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+std::vector<int> Sketch::filledRegionsCached() const {
+    if (m_fillAnchors.empty() || !regionsCached()) return {};
+    uint64_t key = geometryHash();
+    for (glm::vec2 a : m_fillAnchors) {
+        uint32_t b[2];
+        std::memcpy(b, &a, sizeof b);
+        key = (key ^ b[0]) * 1099511628211ull;
+        key = (key ^ b[1]) * 1099511628211ull;
+    }
+    key ^= m_fillAnchors.size();
+    if (!m_filledIdxValid || m_filledIdxKey != key) {
+        m_filledIdxCache = filledRegions(m_regionCache);
+        m_filledIdxKey = key;
+        m_filledIdxValid = true;
+    }
+    return m_filledIdxCache;
+}
+
+std::vector<std::vector<glm::vec2>> Sketch::regionLoops2D(const Region& region) const {
+    const gp_Ax3& ax = m_plane.Position();
+    const gp_Pnt origin = ax.Location();
+    const gp_Vec xd(ax.XDirection()), yd(ax.YDirection());
+    auto loopOf = [&](const TopoDS_Wire& wire) {
+        std::vector<glm::vec2> pts;
+        for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
+            const TopoDS_Edge& edge = ex.Current();
+            BRepAdaptor_Curve c(edge);
+            const double f = c.FirstParameter(), l = c.LastParameter();
+            // Each edge contributes its START (in wire order) up to, not
+            // including, its end - the next edge starts there. Orientation as
+            // in densifyWire2D: a REVERSED edge runs against its parameter.
+            const bool rev = (ex.Orientation() == TopAbs_REVERSED);
+            int n = 1;
+            if (c.GetType() != GeomAbs_Line) {
+                // ~0.2 mm chords: on a 1 mm radius that is a 0.005 mm sag.
+                double len = 0.0;
+                try { len = GCPnts_AbscissaPoint::Length(c); } catch (...) {}
+                n = std::clamp(static_cast<int>(len / 0.2) + 1, 16, 1024);
+            }
+            for (int i = 0; i < n; ++i) {
+                const double frac = static_cast<double>(i) / n;
+                const gp_Vec v(origin, c.Value(rev ? l - (l - f) * frac : f + (l - f) * frac));
+                pts.emplace_back(static_cast<float>(v.Dot(xd)), static_cast<float>(v.Dot(yd)));
+            }
+        }
+        return pts;
+    };
+    std::vector<std::vector<glm::vec2>> loops;
+    auto outer = loopOf(region.outerWire);
+    if (outer.size() < 3) return loops;
+    loops.push_back(std::move(outer));
+    for (const auto& h : region.holeWires) {
+        auto hole = loopOf(h);
+        if (hole.size() >= 3) loops.push_back(std::move(hole));
+    }
+    return loops;
 }
 
 bool Sketch::regionsCached() const {

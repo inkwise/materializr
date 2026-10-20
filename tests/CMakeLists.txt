@@ -778,6 +778,15 @@ target_link_libraries(test_svg_roundtrip PRIVATE materializr_core gtest gtest_ma
     TKV3d TKService)
 add_test(NAME test_svg_roundtrip COMMAND test_svg_roundtrip)
 
+# test_sketch_fill - Fill tool: cosmetic region fills toggle per region, survive
+# save/load and undo snapshots, change nothing modeling reads, and export to SVG
+# as solid evenodd paths (grey or black) and DXF FILL-layer loops. SvgExport.cpp
+# is not in materializr_core.
+add_executable(test_sketch_fill test_sketch_fill.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/SvgExport.cpp)
+target_link_libraries(test_sketch_fill PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_sketch_fill COMMAND test_sketch_fill)
+
 # probe_kernel_matrix - one-line-per-case battery of kernel-sensitive modeling
 # ops for diffing behavior across OCCT versions (7.6.x apt vs 7.9.3 vs 8.0.0);
 # fork-isolated cases so crashes/hangs report instead of killing the battery.

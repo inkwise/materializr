@@ -29,7 +29,8 @@ struct Edge {
 
 } // namespace
 
-SvgExportResult SvgExport::exportSketch(const std::string& filePath, const Sketch& sketch) {
+SvgExportResult SvgExport::exportSketch(const std::string& filePath, const Sketch& sketch,
+                                        const SketchExportOptions& opts) {
     SvgExportResult result;
 
     std::vector<Edge> edges;
@@ -66,7 +67,19 @@ SvgExportResult SvgExport::exportSketch(const std::string& filePath, const Sketc
             if (!c.isConstruction && sketch.getPoint(c.centerPointId)) return true;
         return false;
     }();
-    if (edges.empty() && !haveCircles) {
+    // Filled regions, each as its closed boundary loops (outer + holes).
+    // Resolved before the bounding box: a fill on a face sketch can be the
+    // host-face region around the drawn shapes, reaching past their extent.
+    std::vector<std::vector<std::vector<glm::vec2>>> fills;
+    if (sketch.hasFills()) {
+        const auto regions = sketch.buildRegions();
+        for (int idx : sketch.filledRegions(regions)) {
+            auto loops = sketch.regionLoops2D(regions[idx]);
+            if (!loops.empty()) fills.push_back(std::move(loops));
+        }
+    }
+
+    if (edges.empty() && !haveCircles && fills.empty()) {
         result.errorMessage = "Sketch has no exportable (non-construction) geometry.";
         return result;
     }
@@ -133,6 +146,9 @@ SvgExportResult SvgExport::exportSketch(const std::string& filePath, const Sketc
         float r = static_cast<float>(c.radius);
         grow(ctr->pos - glm::vec2(r)); grow(ctr->pos + glm::vec2(r));
     }
+    for (const auto& loops : fills)
+        for (const auto& loop : loops)
+            for (glm::vec2 q : loop) grow(q);
     const float margin = 1.0f;
     minX -= margin; minY -= margin; maxX += margin; maxY += margin;
     const float w = maxX - minX, h = maxY - minY;
@@ -157,6 +173,26 @@ SvgExportResult SvgExport::exportSketch(const std::string& filePath, const Sketc
                  w, h, w, h);
 
     int pathCount = 0;
+
+    // Fills underneath, so the outlines below draw over their edges. One path
+    // per region: its outer loop and holes as subpaths, evenodd so a letter's
+    // counter or a washer's bore stays open whichever way each loop winds.
+    if (!fills.empty()) {
+        std::fprintf(f, "  <g id=\"fills\" fill=\"%s\" fill-rule=\"evenodd\" stroke=\"none\">\n",
+                     opts.greyFills ? "#808080" : "#000000");
+        for (const auto& loops : fills) {
+            std::fputs("    <path d=\"", f);
+            for (const auto& loop : loops) {
+                for (size_t i = 0; i < loop.size(); ++i)
+                    std::fprintf(f, "%s%.4f %.4f ", i == 0 ? "M" : "L",
+                                 X(loop[i].x), Y(loop[i].y));
+                std::fputs("Z ", f);
+            }
+            std::fputs("\"/>\n", f);
+            ++result.fillCount;
+        }
+        std::fputs("  </g>\n", f);
+    }
 
     // Circles as REAL <circle> elements - the importer's Kåsa fit recovers a
     // native SketchCircle from them (nanosvg turns them into 4 exact cubics).

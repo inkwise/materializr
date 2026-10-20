@@ -155,7 +155,7 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
 
     if (m_sketchMode) {
         // SketchToolMode ints per setActiveSketchMode(): 1=Select … 8=Trim,
-        // 12=Dimension, 14=Offset, 15=Point.
+        // 12=Dimension, 14=Offset, 15=Point, 16=Fill.
         add(MZ_ICON_SELECT,  "Select",  ToolAction::SelectSketch, m_activeSketchMode == 1,
             "Pick sketch elements (points, lines, regions). Drag a selection to move it.");
         add(MZ_ICON_POINT,   "Point",   ToolAction::SketchPoint,  m_activeSketchMode == 15,
@@ -201,6 +201,10 @@ std::vector<Toolbar::RailTool> Toolbar::railTools() const {
         add(MZ_ICON_OFFSET,  "Offset",  ToolAction::SketchOffset, m_activeSketchMode == 14,
             "Offset a chain: tap an edge to take the whole connected run, then "
             "drag or type the distance. The side you are on picks the direction.");
+        add(MZ_ICON_FILL,    "Fill",    ToolAction::SketchFill,   m_activeSketchMode == 16,
+            "Fill closed regions for SVG and DXF export (laser engraving): tap a "
+            "region to fill it, tap again to clear. Cosmetic only - it never "
+            "affects Extrude, Push/Pull or anything else you model.");
         add(MZ_ICON_MEASURE, "Dimension", ToolAction::SketchDimension,
             m_activeSketchMode == 12,
             "Dimension: tap entities, tap to place the label, type the value.");
@@ -671,9 +675,9 @@ ToolAction Toolbar::renderSketchTools() {
         ImVec4 col;
         const char* label = "";
         switch (m_sketchSolverState) {
-            case 0: col = ImVec4(0.20f, 0.85f, 0.35f, 1.0f); label = "Fully constrained"; break;
-            case 1: col = ImVec4(0.30f, 0.65f, 1.00f, 1.0f); label = "Under-constrained"; break;
-            case 2: col = ImVec4(0.95f, 0.30f, 0.30f, 1.0f); label = "Over-constrained";   break;
+            case 0: col = ImVec4(0.20f, 0.85f, 0.35f, 1.0f); label = materializr::tr("Fully constrained"); break;
+            case 1: col = ImVec4(0.30f, 0.65f, 1.00f, 1.0f); label = materializr::tr("Under-constrained"); break;
+            case 2: col = ImVec4(0.95f, 0.30f, 0.30f, 1.0f); label = materializr::tr("Over-constrained");   break;
             default: col = ImVec4(0.7f,0.7f,0.7f,1.0f);      label = "";                    break;
         }
         ImGui::TextColored(col, "● %s", label);
@@ -713,7 +717,7 @@ ToolAction Toolbar::renderSketchTools() {
             ? (m_rectMode == 0 ? "Draw from: Corner" : "Draw from: Center")
             : (m_circleMode == 0 ? "Draw from: Center" : "Draw from: 2-Point");
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.38f, 0.55f, 1.0f));
-        if (ImGui::Button(label, ImVec2(-1, bh(22))))
+        if (ImGui::Button(materializr::tr(label), ImVec2(-1, bh(22))))
             action = ToolAction::SketchToggleDrawOrigin;
         ImGui::PopStyleColor();
         tip(isRect
@@ -777,6 +781,8 @@ ToolAction Toolbar::renderSketchTools() {
     tip(materializr::tr("Trim a sketch segment at the nearest intersections."));
     if (skBtn("Offset",   14))     action = ToolAction::SketchOffset;
     tip(materializr::tr("Offset a chain: click an edge to take the whole connected run, then move the cursor or type a distance. Which side you are on picks the direction."));
+    if (skBtn("Fill",     16))     action = ToolAction::SketchFill;
+    tip(materializr::tr("Fill closed regions for SVG and DXF export (laser engraving): click a region to fill it, click again to clear. Cosmetic only - it never affects Extrude, Push/Pull or anything else you model."));
     if (skBtn("Dimension", 12))    action = ToolAction::SketchDimension;
     tip(materializr::tr("Dimension tool (D): click a line, circle, point pair, or two lines, place the label, then type the value."));
 
@@ -811,7 +817,7 @@ ToolAction Toolbar::renderSketchTools() {
                    : m_inferenceLevel == 2 ? ImVec4(0.34f, 0.34f, 0.34f, 1.0f)
                                            : ImVec4(0.16f, 0.52f, 0.48f, 1.0f); // Max = teal (strongest)
         ImGui::PushStyleColor(ImGuiCol_Button, col);
-        if (ImGui::Button(lbl, ImVec2(-1, bh(26)))) action = ToolAction::SketchCycleInference;
+        if (ImGui::Button(materializr::tr(lbl), ImVec2(-1, bh(26)))) action = ToolAction::SketchCycleInference;
         ImGui::PopStyleColor();
         tip(materializr::tr("How many drawing guides to show, and how eagerly they snap. Max = Full plus wider catch ranges tuned for fingertips (touch). Full = the classic guides PLUS hover-to-charge references (dwell on a point to align from it). Reduced = the classic guides only, no hover-charging. Off = grid + endpoint only. Click to cycle."));
     }
@@ -975,8 +981,8 @@ ToolAction Toolbar::renderFaceTools() {
     // only, Taper is not, and each rule used to be written out twice.
     auto btn = [&](ToolAction a, const char* label, const char* t) {
         if (!catalogOffers(a)) return;
-        if (ImGui::Button(label, ImVec2(-1, bh(30)))) action = a;
-        tip(t);
+        if (ImGui::Button(materializr::tr(label), ImVec2(-1, bh(30)))) action = a;
+        tip(materializr::tr(t));
     };
 
     btn(ToolAction::SketchOnFace, "Sketch on Face",

@@ -374,6 +374,13 @@ ProjectSaveResult ProjectIO::save(const std::string& filePath, const Document& d
                 << c.orientX << " " << c.orientY << "\n";
         }
 
+        // Cosmetic region fills (Fill tool): one anchor point per filled
+        // region, see Sketch::getFillAnchors. An older build skips the block
+        // as an unknown token and loads the sketch unfilled.
+        const auto& fills = sk->getFillAnchors();
+        ofs << "FILL_COUNT " << static_cast<int>(fills.size()) << "\n";
+        for (glm::vec2 a : fills) ofs << "F " << a.x << " " << a.y << "\n";
+
         ofs << "SKETCH_END\n";
     }
 
@@ -801,6 +808,12 @@ void parseSketchBodyImpl(std::istream& ifs, materializr::Sketch& sk,
                 c.isSatisfied = false;
                 maxConstraintId = std::max(maxConstraintId, c.id);
                 sk.addRawConstraint(c);
+            }
+        } else if (tok == "FILL_COUNT") {
+            int n = 0; iss >> n;
+            for (int i = 0; i < n && std::getline(ifs, line); ++i) {
+                std::istringstream s(line); std::string t; glm::vec2 a(0.0f);
+                if (s >> t >> a.x >> a.y) sk.addRawFillAnchor(a);
             }
         }
         // Unknown tokens inside a sketch are ignored for forward compatibility.
@@ -1748,6 +1761,10 @@ void ProjectIO::writeSketchBody(std::ostream& os, const Sketch& sk) {
            << c.labelOffX << " " << c.labelOffY << " "
            << (c.isDriving ? 1 : 0) << " "
            << c.orientX << " " << c.orientY << "\n";
+
+    const auto& fills = sk.getFillAnchors();
+    os << "FILL_COUNT " << static_cast<int>(fills.size()) << "\n";
+    for (glm::vec2 a : fills) os << "F " << a.x << " " << a.y << "\n";
 
     os << "SKETCH_END\n";
 }

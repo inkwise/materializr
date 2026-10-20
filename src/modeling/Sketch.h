@@ -232,6 +232,35 @@ public:
     // matches the current geometry. Returns whether it was installed.
     bool adoptRegions(uint64_t key, std::vector<Region> regions) const;
 
+    // --- Cosmetic region fills (Fill tool) ---------------------------------
+    // A fill marks a closed region as solid for DISPLAY and SVG EXPORT only
+    // (laser engraving artwork). Nothing in modeling reads it: Extrude,
+    // Push/Pull and the sketch-edit cascade see exactly the same sketch with
+    // or without fills, and the region cache key ignores them.
+    //
+    // Stored as anchor points, not region indices - the same identity
+    // regionAtAnchor gives persisted region ops, since indices renumber
+    // whenever the region build changes. An anchor that no longer lands in
+    // any region (its loop was deleted) simply fills nothing.
+    const std::vector<glm::vec2>& getFillAnchors() const { return m_fillAnchors; }
+    void addRawFillAnchor(glm::vec2 p) { m_fillAnchors.push_back(p); } // ProjectIO
+    bool hasFills() const { return !m_fillAnchors.empty(); }
+    // Fill region `regionIndex` of `regions` (this sketch's buildRegions()),
+    // or unfill it if already filled. Returns the region's new state.
+    bool toggleFill(const std::vector<Region>& regions, int regionIndex);
+    // Indices into `regions` that are filled, ascending, without duplicates.
+    std::vector<int> filledRegions(const std::vector<Region>& regions) const;
+    // filledRegions(buildRegions()), memoised on the region key and the
+    // anchors: resolving an anchor densifies every candidate region's wires,
+    // too slow to repeat per frame on a text sketch. Call only when
+    // regionsCached() - it never starts a region build.
+    std::vector<int> filledRegionsCached() const;
+    // A region's boundary as closed sketch-2D polylines (outer first, then
+    // each hole; the closing point is not repeated). Straight edges stay one
+    // segment; curves are sampled finely enough for a laser to engrave
+    // (chord error well under 0.01 mm at ordinary sizes).
+    std::vector<std::vector<glm::vec2>> regionLoops2D(const Region& region) const;
+
     // 2D point-in-region test (sketch-space coordinates)
     bool isPointInRegion(const Region& region, glm::vec2 p) const;
 
@@ -407,6 +436,7 @@ private:
     std::vector<SketchPolygon> m_polygons;
     std::vector<Constraint> m_constraints;
     int m_nextConstraintId = 1;
+    std::vector<glm::vec2> m_fillAnchors; // see getFillAnchors
     FaceReference m_faceRefs;
 
     // Cached in 3D, deliberately. The centroid belongs to the FACE, so its
@@ -423,6 +453,10 @@ private:
     mutable std::vector<Region> m_regionCache;
     mutable uint64_t m_regionHash = 0;
     mutable bool m_regionCacheValid = false;
+    // filledRegionsCached() memo.
+    mutable std::vector<int> m_filledIdxCache;
+    mutable uint64_t m_filledIdxKey = 0;
+    mutable bool m_filledIdxValid = false;
     uint64_t geometryHash() const;
     std::vector<Region> buildRegionsUncached(const Message_ProgressRange& range) const;
 

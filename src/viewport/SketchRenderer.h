@@ -9,6 +9,10 @@
 #include <vector>
 #include <cstddef>   // size_t
 
+// Forward-declared, not included: OCCT headers drag <windows.h> into every
+// translation unit that includes this one.
+class TopoDS_Face;
+
 namespace materializr {
 
 class Sketch;
@@ -44,6 +48,12 @@ public:
     void renderRegionFill(const Sketch* sketch, int regionIndex,
                           const glm::vec3& color, float alpha,
                           const glm::mat4& view, const glm::mat4& projection);
+    // The same translucent fill for several planar faces in ONE draw - the
+    // Fill tool's persistent fills, drawn every frame for every visible
+    // sketch.
+    void renderFacesFill(const std::vector<TopoDS_Face>& faces,
+                         const glm::vec3& color, float alpha,
+                         const glm::mat4& view, const glm::mat4& projection);
 
     // Highlight every primitive in a sketch (lines, circles, arcs, splines,
     // polygon edges) in a single colour at the given line width - used when

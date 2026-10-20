@@ -17,7 +17,7 @@ namespace materializr {
 // (Application::setActiveSketchMode) and the sketch toolbar hardcodes those
 // indices, so inserting a mode in the middle silently highlights the wrong
 // button -- Dimension would become 13 while the button still tests 12.
-enum class SketchToolMode { None, Select, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim, Text, Svg, Mirror, Dimension, Airfoil, Offset, Point };
+enum class SketchToolMode { None, Select, Line, Circle, Rectangle, Arc, Spline, Polygon, Trim, Text, Svg, Mirror, Dimension, Airfoil, Offset, Point, Fill };
 
 enum class DimEntityKind { None, Point, Line, Circle, Arc };
 struct DimPick { DimEntityKind kind = DimEntityKind::None; int id = -1; };

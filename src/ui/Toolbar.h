@@ -45,7 +45,11 @@ enum class ToolAction {
     // General
     Measure, ResetCamera,
     // Fabrication: unfold a body into a flat pattern for laser/CNC/cut templates.
-    Unfold
+    Unfold,
+    // Sketch Fill tool: mark closed regions solid for SVG export (engraving).
+    // Appended rather than grouped with the sketch tools above so no existing
+    // value shifts.
+    SketchFill
 };
 
 class Toolbar {

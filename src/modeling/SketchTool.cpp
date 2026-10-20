@@ -166,8 +166,12 @@ void SketchTool::onMouseMove(glm::vec2 pos) {
     // Dimension mode has no drag/preview snapping of its own - just record the
     // raw cursor for the ghost-label / hover-highlight overlay and bail before
     // the snapping logic below (which doesn't apply to picking entities).
-    if (m_mode == SketchToolMode::Dimension) {
+    // Fill picks whole regions (the app does it, see Application::
+    // toggleSketchFillAt) and places nothing, so the same applies: no snap,
+    // no inference guides.
+    if (m_mode == SketchToolMode::Dimension || m_mode == SketchToolMode::Fill) {
         m_currentPos = pos;
+        m_activeInferences.clear();
         return;
     }
     // Offset: the Pick phase hit-tests with the RAW cursor (as Trim does), the
