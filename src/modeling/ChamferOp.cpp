@@ -650,6 +650,34 @@ bool ChamferOp::execute(Document& doc) {
                 break;
             }
         }
+        // A setback that lands EXACTLY on a neighbouring edge (a 1 mm chamfer
+        // on the 1 mm shoulder between a 22 and a 20 mm diameter) consumes the
+        // adjacent face whole and leaves a degenerate zero-width face, which
+        // ChFi3d either refuses or returns invalid. Back the distance off by a
+        // hair - a nanometre first, then 10 and 100 - so the face survives as a
+        // sliver and the chamfer builds. LAST RESORT, after the cut/fill
+        // fallbacks and the stored-result adoption: tried earlier it pre-empted
+        // them (the native blend at d - 1 nm builds where the fallback's
+        // miter-merged result was the right answer - BlendCut.MiterWedge...).
+        // Only three cheap native builds, and only on a chamfer that was about
+        // to fail anyway. The op keeps the distance the user asked for; this
+        // re-runs identically on replay.
+        if (candidate.IsNull()) {
+            static const double kShyMm[] = {1e-6, 1e-5, 1e-4};
+            for (double shy : kShyMm) {
+                if (m_distance - shy <= 0.0 || dB - shy <= 0.0) break;
+                prepare();
+                TopoDS_Shape c = tryBuild(m_distance - shy, dB - shy);
+                if (c.IsNull() && m_distance2 > 0.0)
+                    c = tryBuild(dB - shy, m_distance - shy);
+                if (c.IsNull() || !BRepCheck_Analyzer(c).IsValid()) continue;
+                candidate = c;
+                std::fprintf(stderr, "[Chamfer] d=%.2f/%.2f consumes its "
+                             "neighbouring face exactly - built %.0e mm "
+                             "short of the limit\n", m_distance, dB, shy);
+                break;
+            }
+        }
         if (candidate.IsNull()) {
             std::fprintf(stderr, "[Chamfer] MakeChamfer failed (d=%.2f/%.2f)\n",
                          m_distance, m_distance2);

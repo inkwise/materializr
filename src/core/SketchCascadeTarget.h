@@ -1,6 +1,9 @@
 #pragma once
 #include "Operation.h"
 #include "Document.h"
+#include "History.h"
+#include "../modeling/ExtrudeOp.h"
+#include "../modeling/PushPullOp.h"
 #include "../modeling/SketchEditOp.h"
 #include "../modeling/SketchTransformOp.h"
 #include <functional>
@@ -20,6 +23,44 @@ inline int sketchIdForCascade(const Operation* op, const Document& doc) {
     if (auto* st = dynamic_cast<const SketchTransformOp*>(op))
         return st->getSketchId();
     return -1;
+}
+
+// Re-derive the profile of every enabled sketch-sourced extrude / push-pull that
+// references `sketchId` and return the index of the EARLIEST one that rebuilt
+// (-1 if none). `*matchedOut` counts the ones that reference the sketch at all.
+//
+// Only steps that are currently APPLIED (index <= currentStep) are considered.
+// The caller replays the chain from the returned index; a step above the tip is
+// part of the redo stack, and handing one back made History::editStep take its
+// "roll FORWARD" branch (index > tip) and re-execute everything in between -
+// so undoing a Sketch Edit whose sketch drives a LATER op jumped the tip
+// forward instead of back (the "stuck in an undo/redo loop" report). A step
+// above the tip is rebuilt anyway when redo re-applies the sketch edit that
+// feeds it, which runs this again.
+inline int rederiveSketchDrivenOps(History& history, Document& doc, int sketchId,
+                                   int* matchedOut = nullptr) {
+    int earliest = -1, matched = 0;
+    const int applied = history.currentStep();
+    for (int i = 0; i <= applied && i < history.stepCount(); ++i) {
+        Operation* op = const_cast<Operation*>(history.getStep(i));
+        if (!op || !op->isEnabled()) continue;
+        if (auto* ext = dynamic_cast<ExtrudeOp*>(op)) {
+            if (ext->getSketchId() != sketchId) continue;
+            ++matched;
+            if (ext->rebuildProfileFromSketch(doc) && earliest < 0) earliest = i;
+        } else if (auto* pp = dynamic_cast<PushPullOp*>(op)) {
+            bool refs = false;
+            const int tc = pp->targetCount();
+            for (int t = 0; t < tc; ++t)
+                if (pp->getSketchIdAt(t) == sketchId) { refs = true; break; }
+            if (!refs) continue;
+            ++matched;
+            if (pp->rebuildProfileFromSketch(doc, sketchId) && earliest < 0)
+                earliest = i;
+        }
+    }
+    if (matchedOut) *matchedOut = matched;
+    return earliest;
 }
 
 // Fires `cascade(sketchId)` for every sketch that needs its driven body

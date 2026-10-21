@@ -568,7 +568,19 @@ void EdgeOpController::commit(const IopContext& ctx) {
     };
     // Pushed inline: see InteractiveOpController::commit's LiveOp branch for
     // why a slow gesture is not on its own a reason to defer the commit.
-    report(op && ctx.history.pushOperation(std::move(op), ctx.doc));
+    const bool committed = op && ctx.history.pushOperation(std::move(op), ctx.doc);
+    report(committed);
+    if (!committed) {
+        // A rejected size must not throw the user out of the gesture: finishing
+        // here cleared the edge selection and closed the panel, so every typo
+        // meant re-picking the edges. The body is back at the snapshot
+        // (pushOperation refused cleanly); keep the gesture, selection and panel
+        // alive, refocus the field, and let them type another value.
+        m_inputFocus = true;
+        m_commitFailFrame = ImGui::GetFrameCount();
+        update(ctx);
+        return;
+    }
     finish(ctx);
 }
 
@@ -853,12 +865,15 @@ void EdgeOpController::renderEdgeOpPanel(const IopContext& ctx) {
         ImGui::Text("%s", materializr::unitSuffix());
     }
 
-    // Quick-nudge stepper (replaces the slider). Positive-only for a radius /
-    // setback; 0 shows the original body mid-preview. Confirming at 0 still
-    // cancels - zero fillet = no fillet. Desktop only.
+    // Quick-nudge stepper (replaces the slider). The value itself stays
+    // positive (a radius / setback below 0.1 is only reachable via 0), but the
+    // -10/-1/-0.1 buttons are offered so an overshoot can be walked back; they
+    // stop at the 0.1 floor. 0 shows the original body mid-preview. Confirming
+    // at 0 still cancels - zero fillet = no fillet. Desktop only.
     if (!imTouch &&
         materializr::lengthStepperRow("edgeStep", &m_value,
-                                /*allowNegative=*/false, 0.1f, 20.0f)) {
+                                /*allowNegative=*/true, 0.1f, 20.0f)) {
+        m_value = std::max(m_value, 0.0f);   // a "-" press from 0 must not go negative
         materializr::formatLengthDigits(m_inputBuf, sizeof(m_inputBuf), m_value);
         update(ctx);
     }
@@ -905,7 +920,8 @@ void EdgeOpController::renderEdgeOpPanel(const IopContext& ctx) {
             }
             if (!imTouch &&
                 materializr::lengthStepperRow("edgeStep2", &m_value2,
-                                        /*allowNegative=*/false, 0.1f, 20.0f)) {
+                                        /*allowNegative=*/true, 0.1f, 20.0f)) {
+                m_value2 = std::max(m_value2, 0.0f);
                 materializr::formatLengthDigits(m_inputBuf2, sizeof(m_inputBuf2), m_value2);
                 update(ctx);
             }
@@ -929,6 +945,7 @@ void EdgeOpController::renderEdgeOpPanel(const IopContext& ctx) {
 
 void EdgeOpController::confirmFromKey(const IopContext& ctx) {
     if (!active()) return;
+    if (m_commitFailFrame == ImGui::GetFrameCount()) return;   // panel's Enter just failed
     (void)materializr::parseLength(m_inputBuf, m_value);
     update(ctx);
     commit(ctx);
@@ -952,6 +969,7 @@ void EdgeOpController::onCleanup() {
     m_twoDist = false;
     m_grab = -1;
     m_dragging = false;
+    m_commitFailFrame = -1;
     m_editPreview.clear();
 }
 

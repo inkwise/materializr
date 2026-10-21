@@ -782,7 +782,7 @@ void PushPullController::renderPushPullPanel(const IopContext& ctx) {
                              ImGuiInputTextFlags_EnterReturnsTrue)) {
             (void)materializr::parseLength(m_st.inputBuf, m_st.distance);
             m_st.distanceRaw = m_st.distance;
-            updatePushPull(ctx);
+            updatePushPull(ctx, /*applySnap=*/false);   // typed = exact
             doCommit = true;
         } else if (materializr::lengthBufferIsActive("##ppdist")) {
             // Only while typing - see the shell controller for why.
@@ -852,7 +852,7 @@ void PushPullController::confirmFromKey(const IopContext& ctx) {
     if (!active()) return;
     (void)materializr::parseLength(m_st.inputBuf, m_st.distance);
     m_st.distanceRaw = m_st.distance;
-    updatePushPull(ctx);
+    updatePushPull(ctx, /*applySnap=*/false);   // typed = exact
     commit(ctx);
 }
 

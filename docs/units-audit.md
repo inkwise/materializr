@@ -261,8 +261,8 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 
 - CONVERTED: 1
 - allowed-by-hand: 92
-- comment: 292
-- diagnostic: 11
+- comment: 294
+- diagnostic: 12
 - identifier/other: 9
 
 | class | file | code |
@@ -341,7 +341,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | allowed-by-hand | src/ai/AiToolSchema.cpp | `num("offset", "Offset distance from the plane along its normal, in mm. Defaults to 0.", false),` |
 | allowed-by-hand | src/ai/AiToolSchema.cpp | `num("distance", "Sweep distance in mm. Must be nonzero. The sign picks a direction (positive = along the profi` |
 | comment | src/app/Application.cpp | `// ios_platform.mm).` |
-| comment | src/app/Application.cpp | `// Create a demo box so there's something to see (a 20 mm cube) - but only` |
+| comment | src/app/Application.cpp | `// No demo body on launch. It used to drop a 20 mm "Demo Box" in here, but` |
 | comment | src/app/Application.cpp | `// Absolute linear deflection (mm) and angular deflection (radians). Lower` |
 | comment | src/app/Application.cpp | `// or, from before the presets converted, wrote 1 and reloaded as a 1 mm` |
 | comment | src/app/Application.cpp | `// Sketch origin should lie on the face's plane within 0.05 mm.` |
@@ -497,6 +497,9 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/modeling/ChamferOp.cpp | `// face than the original session did, and a 11.4 mm setback aimed` |
 | comment | src/modeling/ChamferOp.cpp | `// along a 2 mm face simply cannot build (!IsDone) - the "two-distance` |
 | comment | src/modeling/ChamferOp.cpp | `// mask a dead middle: ChFi3d blended a few mm at each end` |
+| comment | src/modeling/ChamferOp.cpp | `// A setback that lands EXACTLY on a neighbouring edge (a 1 mm chamfer` |
+| comment | src/modeling/ChamferOp.cpp | `// on the 1 mm shoulder between a 22 and a 20 mm diameter) consumes the` |
+| diagnostic | src/modeling/ChamferOp.cpp | `"neighbouring face exactly - built %.0e mm "` |
 | comment | src/modeling/FilletOp.cpp | `// robot dog cover.mzr, body "Extrude", its 114 mm top edge:` |
 | comment | src/modeling/FilletOp.cpp | `// was "I can't fillet beyond about 1.5 mm" on an edge where 2.5, 3, 5` |
 | comment | src/modeling/FilletOp.cpp | `// and 8 mm all worked.` |

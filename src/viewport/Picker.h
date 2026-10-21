@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Face.hxx>
@@ -46,6 +47,19 @@ struct PickResult {
     glm::vec3 hitPoint{0};
     float distance = 0;
 };
+
+// Screen radius (px) within which a click on a face promotes to its nearest
+// edge. `basePx` is the full radius; the face's on-screen size caps it so a
+// small face keeps an interior that still selects the face. That cap is what
+// makes the target zoom-dependent: zoomed out, a face shrinks and so does the
+// edge zone. It used to shrink without limit (¼ of the face), so a thin face
+// such as a chamfer strip or fillet band left a 1-2 px target and edges took
+// several tries. The floor keeps at least 40% of the base radius; zooming in
+// grows the face past the cap and restores the full radius.
+inline float edgePromotionRadiusPx(float basePx, float faceScreenSize) {
+    const float interiorCap = std::max(faceScreenSize * 0.25f, basePx * 0.4f);
+    return std::min(basePx, interiorCap);
+}
 
 class Picker {
 public:

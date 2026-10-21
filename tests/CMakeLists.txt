@@ -625,6 +625,11 @@ target_link_libraries(bench_stl_import PRIVATE materializr_core)
 add_executable(probe_anchor_coverage probe_anchor_coverage.cpp)
 target_link_libraries(probe_anchor_coverage PRIVATE materializr_core)
 
+# probe_undo_redo - diagnostic: walk a real project's history down (undo) and up
+# (redo), flagging failed/no-op steps and state drift
+add_executable(probe_undo_redo probe_undo_redo.cpp)
+target_link_libraries(probe_undo_redo PRIVATE materializr_core)
+
 # probe_face_coverage - diagnostic: generative FACE naming coverage of a real
 # project's bodies against every sketch (experiment/face-anchors)
 add_executable(probe_face_coverage probe_face_coverage.cpp)
@@ -701,6 +706,16 @@ add_test(NAME test_topo_fillet_gen COMMAND test_topo_fillet_gen)
 add_executable(test_topo_chamfer_gen test_topo_chamfer_gen.cpp)
 target_link_libraries(test_topo_chamfer_gen PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_topo_chamfer_gen COMMAND test_topo_chamfer_gen)
+
+# test_chamfer_at_limit - a setback exactly equal to the neighbouring face builds
+add_executable(test_chamfer_at_limit test_chamfer_at_limit.cpp)
+target_link_libraries(test_chamfer_at_limit PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_chamfer_at_limit COMMAND test_chamfer_at_limit)
+
+# test_cascade_applied_only - the sketch cascade must not replay from a step above the undo tip
+add_executable(test_cascade_applied_only test_cascade_applied_only.cpp)
+target_link_libraries(test_cascade_applied_only PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_cascade_applied_only COMMAND test_cascade_applied_only)
 
 
 # test_topo_pushpull - PushPullOp face-driven target via topo::Ref survives a resize

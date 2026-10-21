@@ -15,6 +15,7 @@
 #include "core/MeshGuard.h"
 #include "core/PlaneAxes.h"
 #include "core/History.h"
+#include "core/SketchCascadeTarget.h"
 #include "core/SelectionManager.h"
 
 #include "modeling/Sketch.h"
@@ -1231,33 +1232,17 @@ void Application::cascadeFromSketchEdit(int sketchId) {
     // body (moved on its own in 3D) - editing it must NOT retro-drive the body.
     if (auto sk = m_document->getSketch(sketchId); sk && sk->isDetachedFromBody())
         return;
-    int n = m_history->stepCount();
-
-    // Re-derive the profile of every sketch-sourced extrude / push-pull that
-    // references the edited sketch, and remember the EARLIEST such step. We do
-    // NOT execute them in isolation here - that used to overwrite the body with
-    // just the bare extrude, discarding everything downstream (hollows,
+    // Re-derive the profile of every APPLIED sketch-sourced extrude / push-pull
+    // that references the edited sketch, and remember the EARLIEST such step.
+    // We do NOT execute them in isolation here - that used to overwrite the body
+    // with just the bare extrude, discarding everything downstream (hollows,
     // fillets) and leaving a "cube with N holes". Instead we replay the whole
-    // chain from the earliest affected step below.
-    int earliest = -1, matched = 0;
-    for (int i = 0; i < n; ++i) {
-        Operation* op = const_cast<Operation*>(m_history->getStep(i));
-        if (!op || !op->isEnabled()) continue;
-        if (auto* ext = dynamic_cast<ExtrudeOp*>(op)) {
-            if (ext->getSketchId() != sketchId) continue;
-            ++matched;
-            if (ext->rebuildProfileFromSketch(*m_document) && earliest < 0) earliest = i;
-        } else if (auto* pp = dynamic_cast<PushPullOp*>(op)) {
-            bool refs = false;
-            int tc = pp->targetCount();
-            for (int t = 0; t < tc; ++t)
-                if (pp->getSketchIdAt(t) == sketchId) { refs = true; break; }
-            if (!refs) continue;
-            ++matched;
-            if (pp->rebuildProfileFromSketch(*m_document, sketchId) && earliest < 0)
-                earliest = i;
-        }
-    }
+    // chain from the earliest affected step below. Steps above the undo tip are
+    // excluded (see rederiveSketchDrivenOps): replaying "from" one would roll
+    // the tip forward through everything just undone.
+    int matched = 0;
+    const int earliest =
+        materializr::rederiveSketchDrivenOps(*m_history, *m_document, sketchId, &matched);
     if (earliest < 0) {
         std::fprintf(stderr, "[Cascade] sketchId=%d: %d matched, none re-derivable\n",
                      sketchId, matched);

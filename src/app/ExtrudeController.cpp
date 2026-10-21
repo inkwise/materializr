@@ -445,7 +445,10 @@ void ExtrudeController::renderExtrudePanel(const IopContext& ctx) {
                              ImGuiInputTextFlags_EnterReturnsTrue)) {
             // Enter pressed - commit (parseFinite: keep last on garbage)
             (void)materializr::parseLength(m_inputBuf, m_distance);
-            updateExtrude(ctx);
+            // Typed = exact. Snapping here rounded a typed 0.2 to the grid
+            // step (usually 0), so Enter committed nothing while the Confirm
+            // button, which never re-snaps, worked.
+            updateExtrude(ctx, /*applySnap=*/false);
             doCommit = true;
         } else if (materializr::lengthBufferIsActive("##dist")) {
             // Only while typing - an idle re-parse truncated the member to the
@@ -512,7 +515,7 @@ void ExtrudeController::renderExtrudePanel(const IopContext& ctx) {
 void ExtrudeController::confirmFromKey(const IopContext& ctx) {
     if (!active()) return;
     (void)materializr::parseLength(m_inputBuf, m_distance);
-    updateExtrude(ctx);
+    updateExtrude(ctx, /*applySnap=*/false);   // typed = exact, see the panel's Enter
     commit(ctx);
 }
 

@@ -1200,18 +1200,13 @@ void Application::initRenderers() {
         }
     }
 
-    // Create a demo box so there's something to see (a 20 mm cube) - but only
-    // on a truly empty launch. If loadAppSettings already auto-opened the
-    // user's last project, the document is populated and dropping the demo
-    // box in on top would surprise them.
-    if (m_document->getAllBodyIds().empty()) {
-        TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 20.0, 20.0).Shape();
-        m_document->addBody(box, "Demo Box");
-        m_meshesDirty = true;
-    }
+    // No demo body on launch. It used to drop a 20 mm "Demo Box" in here, but
+    // project restore is deferred, so the document was ALWAYS still empty at
+    // this point: the startup tab counted as occupied (activeSessionIsScratch),
+    // and opening a project from the home screen left that cube tab behind to be
+    // closed by hand on every launch.
 
-    // Frame whatever the document holds - the demo box on a fresh launch, or
-    // the auto-opened project's bodies - so nothing is clipped by the default
+    // Frame whatever the document holds so nothing is clipped by the default
     // camera distance.
     try {
         Bnd_Box bbox;

@@ -75,7 +75,7 @@ src/ai/AiToolSchema.cpp: num("target_z", "Height (user-space Z, up) of the desti
 src/ai/AiToolSchema.cpp: num("offset", "Offset distance from the plane along its normal, in mm. Defaults to 0.", false),
 src/ai/AiToolSchema.cpp: num("distance", "Sweep distance in mm. Must be nonzero. The sign picks a direction (positive = along the profi
 src/app/Application.cpp: // ios_platform.mm).
-src/app/Application.cpp: // Create a demo box so there's something to see (a 20 mm cube) - but only
+src/app/Application.cpp: // No demo body on launch. It used to drop a 20 mm "Demo Box" in here, but
 src/app/Application.cpp: // Absolute linear deflection (mm) and angular deflection (radians). Lower
 src/app/Application.cpp: // or, from before the presets converted, wrote 1 and reloaded as a 1 mm
 src/app/Application.cpp: // Sketch origin should lie on the face's plane within 0.05 mm.
@@ -228,6 +228,9 @@ src/modeling/BooleanOp.cpp: // values (it used to go to 0.1 mm) let OCCT snap di
 src/modeling/ChamferOp.cpp: // face than the original session did, and a 11.4 mm setback aimed
 src/modeling/ChamferOp.cpp: // along a 2 mm face simply cannot build (!IsDone) - the "two-distance
 src/modeling/ChamferOp.cpp: // mask a dead middle: ChFi3d blended a few mm at each end
+src/modeling/ChamferOp.cpp: // A setback that lands EXACTLY on a neighbouring edge (a 1 mm chamfer
+src/modeling/ChamferOp.cpp: // on the 1 mm shoulder between a 22 and a 20 mm diameter) consumes the
+src/modeling/ChamferOp.cpp: "neighbouring face exactly - built %.0e mm "
 src/modeling/FilletOp.cpp: // robot dog cover.mzr, body "Extrude", its 114 mm top edge:
 src/modeling/FilletOp.cpp: // was "I can't fillet beyond about 1.5 mm" on an edge where 2.5, 3, 5
 src/modeling/FilletOp.cpp: // and 8 mm all worked.

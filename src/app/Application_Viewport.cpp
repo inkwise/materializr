@@ -5515,8 +5515,12 @@ void Application::renderViewport() {
                                 // widen the edge-promotion radius in touch mode (8 px
                                 // ~ 0.85 mm at 240 dpi is unhittable). Still clamped
                                 // to ¼ of the face so small faces keep their interior.
-                                const float edgeBase = materializr::touchMode() ? 24.0f : 8.0f;
-                                float edgeThresh = std::min(edgeBase, result.faceScreenSize * 0.25f);
+                                // Desktop radius follows the interface scale: a fixed
+                                // 8 px is a much smaller physical target on a HiDPI or
+                                // 150% display. Touch keeps its own 24 px.
+                                const float edgeBase = materializr::touchMode()
+                                    ? 24.0f : 8.0f * uiScale();
+                                float edgeThresh = edgePromotionRadiusPx(edgeBase, result.faceScreenSize);
                                 if (result.edgeScreenDist < edgeThresh && !result.nearestEdge.IsNull()) {
                                     entry.type = SelectionType::Edge;
                                     entry.bodyId = result.bodyId;

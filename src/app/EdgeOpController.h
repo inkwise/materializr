@@ -118,6 +118,11 @@ private:
     float m_value = 1.0f;
     char m_inputBuf[32] = "1.0";
     bool m_inputFocus = true;
+    // Frame a create-mode commit was last REJECTED. Enter reaches commit() from
+    // both the value field and Application's key handler in one frame; the
+    // first used to deactivate the gesture, making the second a no-op. Now a
+    // rejection keeps the gesture alive, so confirmFromKey must skip the retry.
+    int m_commitFailFrame = -1;
 
     // First selected edge's midpoint + direction, for the drag handle and the
     // radius/distance readout.
