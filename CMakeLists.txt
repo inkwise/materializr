@@ -427,6 +427,7 @@ add_executable(materializr
     src/ui/WelcomeScreen.cpp
     src/ui/LandingPage.cpp
     src/app/ProjectSession.cpp
+    src/app/KeyBindings.cpp
     src/ui/UpdateChecker.cpp
     src/ui/HelpPanel.cpp
     src/io/ProjectIO.cpp

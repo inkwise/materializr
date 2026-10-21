@@ -372,11 +372,17 @@ static const char* shortcutHint(const char* s) {
 #endif
 }
 
+// Same, for a rebindable shortcut's label (Application::keyLabel). The caller
+// keeps the string alive for the MenuItem call. Unbound -> no hint at all.
+static const char* shortcutHint(const std::string& label) {
+    return label.empty() ? nullptr : shortcutHint(label.c_str());
+}
+
 // The four menu bodies, shared by classic's menu bar and the modern/im-touch
 // overflow popup - one item list each, so the layouts cannot drift.
 void Application::renderFileMenuItems(bool withSettings) {
     if (ImGui::MenuItem(materializr::tr("Home Screen"))) goToHomeScreen();
-    if (ImGui::MenuItem(materializr::tr("Open Project..."), shortcutHint("Ctrl+O"))) loadProject();
+    if (ImGui::MenuItem(materializr::tr("Open Project..."), shortcutHint(keyLabel(KeyAction::Open)))) loadProject();
     // Open Recent - persisted, most-recent-first. Greyed when empty.
     if (ImGui::BeginMenu(materializr::tr("Open Recent"), !m_recentProjects.empty())) {
         // Snapshot: openRecentProject() mutates m_recentProjects.
@@ -396,7 +402,7 @@ void Application::renderFileMenuItems(bool withSettings) {
         }
         ImGui::EndMenu();
     }
-    if (ImGui::MenuItem(materializr::tr("Save Project"), shortcutHint("Ctrl+S"))) saveProjectQuick();
+    if (ImGui::MenuItem(materializr::tr("Save Project"), shortcutHint(keyLabel(KeyAction::Save)))) saveProjectQuick();
     if (ImGui::MenuItem(materializr::tr("Save Project As..."))) saveProject();
     // A new project opens in its own tab (non-destructive - the current
     // project keeps its tab); the landing page's New Project tile still
@@ -495,11 +501,11 @@ void Application::renderEditMenuItems() {
     // the preview pushes over the redo tail. (How "pull, confirm,
     // pull the other way" ate the first body.)
     const bool histLocked = anyInteractivePreviewActive();
-    if (ImGui::MenuItem(materializr::tr("Undo"), shortcutHint("Ctrl+Z"), false,
+    if (ImGui::MenuItem(materializr::tr("Undo"), shortcutHint(keyLabel(KeyAction::Undo)), false,
                         !histLocked && m_history->canUndo())) {
         undoWithCascade();
     }
-    if (ImGui::MenuItem(materializr::tr("Redo"), shortcutHint("Ctrl+Y"), false,
+    if (ImGui::MenuItem(materializr::tr("Redo"), shortcutHint(keyLabel(KeyAction::Redo)), false,
                         !histLocked && m_history->canRedo())) {
         redoWithCascade();
     }
@@ -595,9 +601,9 @@ void Application::renderConstructionMenuItems() {
 }
 
 void Application::renderViewMenuItems() {
-    if (ImGui::MenuItem(materializr::tr("Reset Camera"), "Home")) m_viewport->getCamera().reset();
+    if (ImGui::MenuItem(materializr::tr("Reset Camera"), shortcutHint(keyLabel(KeyAction::ResetCamera)))) m_viewport->getCamera().reset();
     // The F shortcut's menu twin - and the only way to frame on touch.
-    if (ImGui::MenuItem(materializr::tr("Frame Selection"), "F")) frameSelection();
+    if (ImGui::MenuItem(materializr::tr("Frame Selection"), shortcutHint(keyLabel(KeyAction::FrameSelection)))) frameSelection();
     // Measure lives here now - one home for it across layouts instead of a
     // toolbar/rail button duplicated per context. Drops the user at the
     // measure mode picker (Object / Edge / Point-to-Point).
@@ -636,7 +642,7 @@ void Application::renderViewMenuItems() {
     // back on toggle. F9 on a keyboard; touch gets edge tabs. This menu
     // item hides/shows BOTH columns at once; the checkmark = both hidden.
     bool bothHidden = m_leftPanelHidden && m_rightPanelHidden;
-    if (ImGui::MenuItem(materializr::tr("Hide Panels"), shortcutHint("F9"), bothHidden)) {
+    if (ImGui::MenuItem(materializr::tr("Hide Panels"), shortcutHint(keyLabel(KeyAction::TogglePanels)), bothHidden)) {
         bool hide = !bothHidden;
         m_leftPanelHidden = m_rightPanelHidden = hide;
         saveAppSettings();

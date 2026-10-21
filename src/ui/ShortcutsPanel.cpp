@@ -2,7 +2,9 @@
 #include "ui_scale.h"
 #include "ShortcutsPanel.h"
 #include <imgui.h>
-#include "../i18n.h"
+#include <string>
+#include <vector>
+#include "../app/KeyBindings.h"
 #include "../i18n.h"
 
 namespace materializr {
@@ -22,12 +24,32 @@ namespace {
 // old hand-rolled version drifted out of sync with the real handler - six
 // bindings it advertised did not exist (Ctrl+C/Ctrl+V for a clipboard that
 // was never written, and S/L/C/R for sketch tools that are toolbar-only,
-// while R actually switches the gizmo to Scale). Keep this list checked
-// against Application::handleShortcuts.
-struct Binding { const char* keys; const char* action; };
+// while R actually switches the gizmo to Scale). The rebindable shortcuts now
+// come straight from KeyBindings (the same table Application::handleShortcuts
+// reads), so they cannot drift; the fixed rows below are the ones that are not
+// configurable, and are checked against handleShortcuts by hand.
+struct Row { std::string keys; std::string action; };
 
-void section(const char* title, const char* tableId,
-             const Binding* rows, int count) {
+// A fixed row: both halves are catalogue keys (a chord such as "Ctrl+Click"
+// is translated as one string, like the rest of the UI).
+Row fixedRow(const char* keys, const char* action) {
+    return { tr(keys), tr(action) };
+}
+
+// The rebindable shortcuts of one KeyBindings group, as rows.
+void addBound(std::vector<Row>& rows, const KeyBindings* kb, const char* group) {
+    if (!kb) return;
+    for (int i = 0; i < KeyBindings::count(); ++i) {
+        const KeyAction a = KeyBindings::fromIndex(i);
+        const KeyActionInfo& inf = KeyBindings::info(a);
+        if (std::string(inf.group) != group) continue;
+        const std::string keys = KeyBindings::format(kb->chord(a), /*localized=*/true);
+        rows.push_back({ keys.empty() ? std::string(tr("Unassigned")) : keys,
+                         tr(inf.label) });
+    }
+}
+
+void section(const char* title, const char* tableId, const std::vector<Row>& rows) {
     ImGui::Spacing();
     ImGui::TextColored(materializr::accentText(), "%s", title);
     ImGui::Separator();
@@ -39,14 +61,14 @@ void section(const char* title, const char* tableId,
                             uiSz(170, 0).x);
     ImGui::TableSetupColumn(materializr::tr("Action"), ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableHeadersRow();
-    for (int i = 0; i < count; ++i) {
+    for (const Row& r : rows) {
         ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::TextUnformatted(rows[i].keys);
+        ImGui::TableNextColumn(); ImGui::TextWrapped("%s", r.keys.c_str());
         // WRAPPED, not plain text: the window size is remembered per user in
         // imgui.ini, so a default width can't be relied on - anyone who
         // opened the old panel keeps its width and would just see the
         // descriptions clipped.
-        ImGui::TableNextColumn(); ImGui::TextWrapped("%s", rows[i].action);
+        ImGui::TableNextColumn(); ImGui::TextWrapped("%s", r.action.c_str());
     }
     ImGui::EndTable();
 }
@@ -56,81 +78,65 @@ void ShortcutsPanel::render() {
     if (!m_visible) return;
 
     ImGui::SetNextWindowSize(uiSz(580, 640), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Keyboard Shortcuts", &m_visible)) {
+    if (!ImGui::Begin(tr("Keyboard Shortcuts###KeyboardShortcuts"), &m_visible)) {
         ImGui::End();
         return;
     }
 
-    static const Binding kFile[] = {
-        {"Ctrl+S",        "Save (names it only the first time)"},
-        {"Ctrl+O",        "Open a project"},
-        {"Ctrl+I",        "Import STEP"},
-        {"Ctrl+E",        "Export STEP"},
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", tr("Keyboard shortcuts can be changed in Settings \xE2\x86\x92 Navigation."));
+    ImGui::PopStyleColor();
+
+    std::vector<Row> file, edit, tabs, view, tools, sketch, mouse, touch;
+    addBound(file, m_bindings, "File");
+    addBound(edit, m_bindings, "Edit");
+    addBound(tabs, m_bindings, "Tabs");
+    addBound(view, m_bindings, "View");
+    tools = {
+        fixedRow("Enter", "Commit the running tool (and typed value)"),
+        fixedRow("Esc",   "Cancel the running tool or gizmo drag"),
     };
-    static const Binding kEdit[] = {
-        {"Ctrl+Z",        "Undo"},
-        {"Ctrl+Y",        "Redo"},
-        {"Ctrl+D",        "Duplicate the selection in place"},
-        {"Ctrl+A",        "Select all (sketch, body, or edges/faces)"},
-        {"Delete",        "Delete the selection"},
+    addBound(sketch, m_bindings, "Sketch");
+    sketch.push_back(fixedRow("Backspace",    "Remove the last spline point or stamp"));
+    sketch.push_back(fixedRow("Esc",          "Cancel the shape; again to leave the sketch"));
+    sketch.push_back(fixedRow("Double-click", "Finish the spline being drawn"));
+    sketch.push_back(fixedRow("Right-click",  "Constraints menu (needs a selection)"));
+    mouse = {
+        fixedRow("Middle-drag",       "Orbit"),
+        fixedRow("Shift+Middle-drag", "Pan (always, whatever the buttons are)"),
+        fixedRow("Right-drag",        "Pan"),
+        fixedRow("Scroll",            "Zoom toward the cursor"),
+        fixedRow("Left-click",        "Select a face or sketch region"),
+        fixedRow("Double-click",      "Select the whole body"),
+        fixedRow("Left-drag",         "Box-select (on empty space)"),
+        fixedRow("Right-click",       "Context menu"),
     };
-    static const Binding kTabs[] = {
-        {"Ctrl+Tab",       "Next project tab"},
-        {"Ctrl+Shift+Tab", "Previous project tab"},
-    };
-    static const Binding kView[] = {
-        {"Home",          "Reset the camera"},
-        {"F",             "Frame the selection (or everything, if none)"},
-        {"F9",            "Hide / restore the side panels"},
-        {"W / E / R",     "Gizmo: translate / rotate / scale"},
-    };
-    static const Binding kTools[] = {
-        {"Enter",         "Commit the running tool (and typed value)"},
-        {"Esc",           "Cancel the running tool or gizmo drag"},
-    };
-    static const Binding kSketch[] = {
-        {"D",             "Dimension tool"},
-        {"Backspace",     "Remove the last spline point or stamp"},
-        {"Esc",           "Cancel the shape; again to leave the sketch"},
-        {"Double-click",  "Finish the spline being drawn"},
-        {"Right-click",   "Constraints menu (needs a selection)"},
-    };
-    static const Binding kMouse[] = {
-        {"Middle-drag",       "Orbit"},
-        {"Shift+Middle-drag", "Pan (always, whatever the buttons are)"},
-        {"Right-drag",        "Pan"},
-        {"Scroll",            "Zoom toward the cursor"},
-        {"Left-click",        "Select a face or sketch region"},
-        {"Double-click",      "Select the whole body"},
-        {"Left-drag",         "Box-select (on empty space)"},
-        {"Right-click",       "Context menu"},
-    };
-    static const Binding kTouch[] = {
-        {"Tap",              "Select"},
-        {"Double-tap",       "Select the whole body"},
-        {"One-finger drag",  "Orbit, or drive the running tool"},
-        {"Two-finger drag",  "Pan or pinch-zoom"},
-        {"Long-press",       "Context menu"},
-        {"Two-finger tap",   "Undo"},
-        {"Three-finger tap", "Redo"},
+    touch = {
+        fixedRow("Tap",              "Select"),
+        fixedRow("Double-tap",       "Select the whole body"),
+        fixedRow("One-finger drag",  "Orbit, or drive the running tool"),
+        fixedRow("Two-finger drag",  "Pan or pinch-zoom"),
+        fixedRow("Long-press",       "Context menu"),
+        fixedRow("Two-finger tap",   "Undo"),
+        fixedRow("Three-finger tap", "Redo"),
     };
 
-    section("File", "scFile", kFile, IM_ARRAYSIZE(kFile));
-    section("Edit", "scEdit", kEdit, IM_ARRAYSIZE(kEdit));
-    section("Tabs", "scTabs", kTabs, IM_ARRAYSIZE(kTabs));
-    section("View", "scView", kView, IM_ARRAYSIZE(kView));
-    section("While a tool is running", "scTools", kTools, IM_ARRAYSIZE(kTools));
-    section("In a sketch", "scSketch", kSketch, IM_ARRAYSIZE(kSketch));
+    section(tr("File"), "scFile", file);
+    section(tr("Edit"), "scEdit", edit);
+    section(tr("Tabs"), "scTabs", tabs);
+    section(tr("View"), "scView", view);
+    section(tr("While a tool is running"), "scTools", tools);
+    section(tr("In a sketch"), "scSketch", sketch);
     ImGui::Spacing();
     ImGui::TextDisabled("%s", materializr::tr("The drawing tools (Line, Circle, Rectangle, Arc,"));
     ImGui::TextDisabled("%s", materializr::tr("Spline, Polygon, Trim, Offset) are on the toolbar only."));
 
-    section("Mouse", "scMouse", kMouse, IM_ARRAYSIZE(kMouse));
+    section(tr("Mouse"), "scMouse", mouse);
     ImGui::Spacing();
     ImGui::TextDisabled("%s", materializr::tr("Orbit and pan buttons are configurable in"));
     ImGui::TextDisabled("%s", materializr::tr("Settings \xE2\x86\x92 Navigation."));
 
-    section("Touch", "scTouch", kTouch, IM_ARRAYSIZE(kTouch));
+    section(tr("Touch"), "scTouch", touch);
 
     ImGui::End();
 }

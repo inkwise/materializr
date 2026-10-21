@@ -216,6 +216,13 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readFloat(kv, "stlImportAccuracy",   s.stlImportAccuracy);
     readBool(kv, "meshShowWireframe",    s.meshShowWireframe);
 
+    // Keyboard shortcuts: every bind_<id> key is one override. The text is
+    // validated by KeyBindings::fromOverrides, which knows the key names.
+    s.keyBindings.clear();
+    for (const auto& kvp : kv)
+        if (kvp.first.size() > 5 && kvp.first.compare(0, 5, "bind_") == 0)
+            s.keyBindings[kvp.first.substr(5)] = kvp.second;
+
     // Recently opened/saved projects: contiguous indexed keys recentN_ref /
     // recentN_name (most-recent-first). Stop at the first missing/empty _ref.
     s.recentProjects.clear();
@@ -492,6 +499,8 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "angleSnapDeg = "             << s.angleSnapDeg        << "\n";
     ofs << "stlImportAccuracy = "        << s.stlImportAccuracy   << "\n";
     ofs << "meshShowWireframe = "        << (s.meshShowWireframe ? "true" : "false") << "\n";
+    for (const auto& b : s.keyBindings)
+        ofs << "bind_" << sanitizeValue(b.first) << " = " << sanitizeValue(b.second) << "\n";
 
     // Re-emit keys from the old file that this build didn't write (another
     // version's settings) so they round-trip instead of vanishing.
@@ -508,6 +517,10 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
         // Preserving it resurrects the removed entry - a phantom tab on the
         // next launch after closing one (found on the rig, 2026-07-28).
         auto isIndexedListKey = [](const std::string& k) {
+            // bind_<id>: rewritten whole too - resetting a shortcut to its
+            // default DROPS the key, and preserving the old one would bring
+            // the custom binding straight back on the next launch.
+            if (k.compare(0, 5, "bind_") == 0) return true;
             for (const char* p : {"recent", "session"}) {
                 const size_t n = std::strlen(p);
                 if (k.size() > n && k.compare(0, n, p) == 0 &&
@@ -596,6 +609,9 @@ bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {
         << b(s.showSelectionMeasurements) << ",\n";
     ofs << "  \"angleSnapDeg\": "             << s.angleSnapDeg          << ",\n";
     ofs << "  \"stlImportAccuracy\": "        << s.stlImportAccuracy     << ",\n";
+    for (const auto& kb : s.keyBindings)
+        ofs << "  \"bind_" << sanitizeValue(kb.first) << "\": \""
+            << sanitizeValue(kb.second) << "\",\n";
     ofs << "  \"meshShowWireframe\": "        << b(s.meshShowWireframe)  << "\n";
     ofs << "}\n";
 

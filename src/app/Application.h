@@ -41,6 +41,7 @@
 #include "app/SplitController.h"
 #include "app/LiveOpPreview.h"
 #include "app/CylindricalPick.h"
+#include "app/KeyBindings.h"
 #include <array>
 #include "modeling/ExtrudeOp.h" // for ExtrudeMode
 #include "modeling/SketchConstraints.h" // for ConstraintType (applySketchConstraint)
@@ -267,6 +268,14 @@ private:
     void renderScalePanel();
     void handleToolAction(int action);
     void handleShortcuts();
+    // Is the (rebindable) shortcut `a` pressed this frame? Exact-modifier match
+    // against the user's current binding; plain keys are ignored while a text
+    // field has focus. `repeat` = fire again while the key is held.
+    bool keyPressed(KeyAction a, bool repeat = true) const;
+    // The binding for display ("Ctrl+S", translated), or "" when unbound.
+    std::string keyLabel(KeyAction a) const;
+    // Settings > Navigation > Keyboard shortcuts: the list, click-to-rebind.
+    void renderKeyBindingsSettings(bool& changed);
     void handleViewCubeAction(int action);
     void rebuildMeshes();
     glm::vec2 screenToSketch(float sx, float sy, float vpW, float vpH);
@@ -1124,6 +1133,16 @@ private:
     // io.WantTextInput; typed text still flows into whatever field is focused.
     bool m_softKeyboardForced = false;
     bool m_showSettings = false;
+    // Keyboard shortcuts (Settings > Navigation). m_keyCapture is the action
+    // waiting for its new key (COUNT = none); m_keyCaptureEndFrame is the frame
+    // a capture last finished, so the same keypress that set the binding does
+    // not also fire it in handleShortcuts.
+    KeyBindings m_keyBindings;
+    KeyAction m_keyCapture = KeyAction::COUNT;
+    int m_keyCaptureEndFrame = -1;
+    int m_keyCaptureSeenFrame = -1;   // last frame the list rendered while capturing
+    bool m_keyCaptureNavOff = false;  // we cleared NavEnableKeyboard for the capture
+    std::string m_keyBindNote;   // last conflict / reserved-key message
     int m_settingsOrbitButton = 2; // staged value in the Settings dialog
     int m_settingsPanButton = 1;
 

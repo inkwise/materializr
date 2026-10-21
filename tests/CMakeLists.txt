@@ -895,6 +895,16 @@ add_executable(test_settings_sessions test_settings_sessions.cpp
 target_link_libraries(test_settings_sessions PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_settings_sessions COMMAND test_settings_sessions)
 
+# test_key_bindings - rebindable keyboard shortcuts: the defaults table, chord
+# text, conflict scopes, and the bind_<id> persistence (incl. the SHRINK trap
+# where a reset shortcut would otherwise be resurrected by the writer's
+# "preserve another version's keys" pass).
+add_executable(test_key_bindings test_key_bindings.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/KeyBindings.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/Settings.cpp)
+target_link_libraries(test_key_bindings PRIVATE materializr_core imgui_lib gtest gtest_main)
+add_test(NAME test_key_bindings COMMAND test_key_bindings)
+
 add_executable(test_ai_settings test_ai_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/io/Settings.cpp)
 target_link_libraries(test_ai_settings PRIVATE materializr_core gtest gtest_main)

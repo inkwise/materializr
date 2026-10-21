@@ -154,7 +154,8 @@ void Application::renderSettings() {
         ImGui::SetNextWindowFocus();
         m_settingsRaise = false;
     }
-    ImGui::SetNextWindowSize(uiSz(420, 420), ImGuiCond_Appearing);
+    // 630 wide: the keyboard-shortcut list (Navigation) needs the room.
+    ImGui::SetNextWindowSize(uiSz(630, 420), ImGuiCond_Appearing);
     if (ImGui::Begin("Settings", &m_showSettings)) {
         bool changed = false; // any change persists the settings file
 
@@ -541,6 +542,9 @@ void Application::renderSettings() {
                     if (ImGui::Checkbox(materializr::tr("History"),      &m_showHistory))      changed = true;
                     if (ImGui::Checkbox(materializr::tr("Items"),        &m_showItems))        changed = true;
                     if (ImGui::Checkbox(materializr::tr("Properties"),   &m_showProperties))   changed = true;
+
+                    ImGui::Spacing();
+                    renderKeyBindingsSettings(changed);
                     ImGui::EndTabItem();
                 }
 
@@ -745,6 +749,127 @@ void Application::renderSettings() {
         if (changed) saveAppSettings();
     }
     ImGui::End();
+}
+
+// Settings > Navigation > Keyboard shortcuts: every rebindable shortcut with its
+// current key, click one then press the new combination. Changes apply live and
+// are saved through `changed` like the rest of the dialog; the defaults live in
+// KeyBindings.cpp.
+void Application::renderKeyBindingsSettings(bool& changed) {
+    ImGui::SeparatorText(materializr::tr("Keyboard Shortcuts"));
+    ImGui::TextWrapped("%s", materializr::tr("Click a shortcut, then press the new key combination. Esc cancels. A combination already in use is taken from its old action. Esc, Enter and Space cannot be assigned."));
+    ImGui::Spacing();
+
+    ImGuiIO& io = ImGui::GetIO();
+    const int frame = ImGui::GetFrameCount();
+
+    // Capture first, so a binding made this frame shows in the list below. The
+    // key pressed becomes the binding AND must not run as a command: the
+    // capture's end frame is recorded for handleShortcuts to skip.
+    if (m_keyCapture != KeyAction::COUNT) {
+        m_keyCaptureSeenFrame = frame;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            m_keyCapture = KeyAction::COUNT;
+            m_keyCaptureEndFrame = frame;
+        } else {
+            for (int k : KeyBindings::bindableKeys()) {
+                if (!ImGui::IsKeyPressed(static_cast<ImGuiKey>(k), false)) continue;
+                KeyChord c;
+                c.key = k;
+                c.ctrl = Window::isCtrlDown() || io.KeyCtrl;
+                c.shift = io.KeyShift;
+                c.alt = io.KeyAlt;
+                if (!KeyBindings::bindable(c)) {
+                    m_keyBindNote = materializr::tr("That key combination is reserved.");
+                } else {
+                    const KeyAction taken = m_keyBindings.assign(m_keyCapture, c);
+                    m_keyBindNote = (taken == KeyAction::COUNT) ? std::string()
+                        : materializr::trFormat("Taken from: %s.",
+                              materializr::tr(KeyBindings::info(taken).label));
+                    changed = true;
+                }
+                m_keyCapture = KeyAction::COUNT;
+                m_keyCaptureEndFrame = frame;
+                break;
+            }
+        }
+        // A click anywhere but the armed button gives up the capture.
+        if (m_keyCapture != KeyAction::COUNT && ImGui::IsMouseClicked(0) &&
+            !ImGui::IsAnyItemHovered())
+            m_keyCapture = KeyAction::COUNT;
+    }
+
+    const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable("##keybindings", 3, flags)) {
+        ImGui::TableSetupColumn("##action", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("##shortcut", ImGuiTableColumnFlags_WidthFixed, materializr::uiSz(190, 0).x);
+        ImGui::TableSetupColumn("##reset", ImGuiTableColumnFlags_WidthFixed, materializr::uiSz(150, 0).x);
+
+        const char* group = nullptr;
+        for (int i = 0; i < KeyBindings::count(); ++i) {
+            const KeyAction a = KeyBindings::fromIndex(i);
+            const KeyActionInfo& inf = KeyBindings::info(a);
+            if (!group || std::strcmp(group, inf.group) != 0) {
+                group = inf.group;
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Spacing();
+                ImGui::TextColored(materializr::accentText(), "%s", materializr::tr(inf.group));
+            }
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextWrapped("%s", materializr::tr(inf.label));
+
+            ImGui::TableSetColumnIndex(1);
+            const bool capturing = (m_keyCapture == a);
+            std::string text = capturing ? std::string(materializr::tr("Press a key..."))
+                             : m_keyBindings.chord(a).bound() ? keyLabel(a)
+                             : std::string(materializr::tr("Unassigned"));
+            if (capturing)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::Button((text + "###bind").c_str(), ImVec2(-FLT_MIN, 0))) {
+                m_keyCapture = capturing ? KeyAction::COUNT : a;
+                m_keyCaptureSeenFrame = frame;
+                m_keyBindNote.clear();
+            }
+            if (capturing) ImGui::PopStyleColor();
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::BeginDisabled(!m_keyBindings.chord(a).bound());
+            if (ImGui::Button(materializr::tr("Clear"))) {
+                m_keyBindings.unbind(a);
+                m_keyBindNote.clear();
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(m_keyBindings.isDefault(a));
+            if (ImGui::Button(materializr::tr("Reset"))) {
+                // Taking the default back may displace an action that has since
+                // been bound to the same combination.
+                const KeyAction taken = m_keyBindings.assign(a, inf.def);
+                m_keyBindNote = (taken == KeyAction::COUNT) ? std::string()
+                    : materializr::trFormat("Taken from: %s.",
+                          materializr::tr(KeyBindings::info(taken).label));
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+
+    if (!m_keyBindNote.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s", m_keyBindNote.c_str());
+    ImGui::Spacing();
+    if (ImGui::Button(materializr::tr("Reset all shortcuts"))) {
+        m_keyBindings.resetAll();
+        m_keyCapture = KeyAction::COUNT;
+        m_keyBindNote.clear();
+        changed = true;
+    }
 }
 
 void Application::renderMirrorPopup() {
@@ -1372,7 +1497,12 @@ void Application::renderInteractionsPanel() {
     row("Orbit", orbitKeys);
     row("Pan", panKeys);
     row("Zoom", "Scroll wheel");
-    row("Reset view", "Home");
+    // Keyboard rows show the live binding (Settings > Navigation), "-" when unbound.
+    auto lab = [this](KeyAction a) {
+        const std::string l = keyLabel(a);
+        return l.empty() ? std::string("-") : l;
+    };
+    row("Reset view", lab(KeyAction::ResetCamera).c_str());
     ImGui::SeparatorText(materializr::tr("Select"));
     row("Select face", "Click");
     row("Select body", "Double-click");
@@ -1385,15 +1515,17 @@ void Application::renderInteractionsPanel() {
                                    m_panButton  == ImGuiMouseButton_Left);
         row("Box-select", leftIsCamera ? "Alt+Drag" : "Drag empty space");
     }
-    row("Delete selected", "Del");
+    row("Delete selected", lab(KeyAction::Delete).c_str());
     ImGui::SeparatorText(materializr::tr("Transform (body)"));
-    row("Move / Rotate / Scale", "W / E / R");
+    row("Move / Rotate / Scale",
+        (lab(KeyAction::GizmoTranslate) + " / " + lab(KeyAction::GizmoRotate) + " / " +
+         lab(KeyAction::GizmoScale)).c_str());
     ImGui::SeparatorText(materializr::tr("Sketch"));
     row("Start", "Pick a base plane / face");
     row("Finish / Cancel", "Enter / Esc");
     row("Dimension", "Type value + Enter");
     ImGui::SeparatorText(materializr::tr("General"));
-    row("Undo / Redo", "Ctrl+Z / Ctrl+Y");
+    row("Undo / Redo", (lab(KeyAction::Undo) + " / " + lab(KeyAction::Redo)).c_str());
     }
     ImGui::End();
 }

@@ -321,6 +321,7 @@ Application::Application(bool safeMode, float uiScaleOverride)
     iosStoreInit();
 #endif
     m_shortcutsPanel = std::make_unique<ShortcutsPanel>();
+    m_shortcutsPanel->setBindings(&m_keyBindings);
     m_helpPanel = std::make_unique<HelpPanel>();
     m_measureTool = std::make_unique<MeasureTool>();
 
@@ -2038,6 +2039,7 @@ AppSettings Application::currentSettings() const {
     s.showItems = m_showItems;
     s.showProperties = m_showProperties;
     s.touchOrbitSens = m_touchOrbitSens;
+    s.keyBindings = m_keyBindings.toOverrides();
     s.touchPanSens = m_touchPanSens;
     s.touchZoomSens = m_touchZoomSens;
     s.showToolbarTooltips = m_showToolbarTooltips;
@@ -2152,6 +2154,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_showItems = s.showItems;
     m_showProperties = s.showProperties;
     m_touchOrbitSens = s.touchOrbitSens;
+    m_keyBindings.fromOverrides(s.keyBindings);
     m_touchPanSens = s.touchPanSens;
     m_touchZoomSens = s.touchZoomSens;
     m_showToolbarTooltips = s.showToolbarTooltips;
@@ -3012,19 +3015,69 @@ void Application::handleToolAction(int action) {
     }
 }
 
+bool Application::keyPressed(KeyAction a, bool repeat) const {
+    const KeyChord& c = m_keyBindings.chord(a);
+    if (!c.bound()) return false;
+    const ImGuiIO& io = ImGui::GetIO();
+    const bool ctrl = Window::isCtrlDown() || io.KeyCtrl;
+    if (!m_keyBindings.matches(a, c.key, ctrl, io.KeyShift, io.KeyAlt)) return false;
+    // A chord without Ctrl or Alt is a typing key (D, F, Delete...): leave it to
+    // the text field that has focus.
+    if (!c.ctrl && !c.alt && io.WantTextInput) return false;
+    return ImGui::IsKeyPressed(static_cast<ImGuiKey>(c.key), repeat);
+}
+
+std::string Application::keyLabel(KeyAction a) const {
+    return KeyBindings::format(m_keyBindings.chord(a), /*localized=*/true);
+}
+
 void Application::handleShortcuts() {
+    // While a shortcut is being captured ImGui's own keyboard navigation must
+    // not see the keys: Home / End / PageUp scroll the Settings dialog out from
+    // under the user, arrows and Tab move the focus ring, and Space / Enter
+    // would "click" the armed button. Switched off exactly for the capture and
+    // switched back the frame it ends (or is abandoned - see below).
+    {
+        ImGuiIO& nio = ImGui::GetIO();
+        const bool capturing = m_keyCapture != KeyAction::COUNT;
+        if (capturing && !m_keyCaptureNavOff) {
+            nio.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+            m_keyCaptureNavOff = true;
+        } else if (!capturing && m_keyCaptureNavOff) {
+            nio.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+            m_keyCaptureNavOff = false;
+        }
+    }
+
     // A threaded thread-cut compute is in flight (its modal popup is up). Suppress
     // shortcuts until it resolves: undo/redo/delete would mutate the document - and
     // the worker's target body - out from under the in-flight op, whose result is
     // pushed on the main thread when the future lands.
     if (m_threadComputing) return;
 
+    // A capture only lives while the list is on screen: switching to another
+    // Settings tab or closing the dialog would otherwise leave every shortcut
+    // dead until the user came back to cancel it.
+    if (m_keyCapture != KeyAction::COUNT &&
+        m_keyCaptureSeenFrame != ImGui::GetFrameCount())
+        m_keyCapture = KeyAction::COUNT;
+    // A shortcut is being re-bound (Settings > Navigation > Keyboard
+    // shortcuts): the key just pressed is the new binding, not a command. The
+    // capture ends in the frame it is satisfied - which is this frame, since
+    // the Settings dialog renders before this runs - so the end frame is
+    // blocked too, or Esc (cancel) would also leave the sketch.
+    if (m_keyCapture != KeyAction::COUNT ||
+        m_keyCaptureEndFrame == ImGui::GetFrameCount())
+        return;
+
     ImGuiIO& io = ImGui::GetIO();
 
-    // Undo/Redo - poll the hardware Ctrl state directly so it works even when
-    // ImGui has text input focus. Always false on Android (no modifier keys).
-    bool ctrlHeld = Window::isCtrlDown();
-    if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+    // Every rebindable shortcut goes through keyPressed(), which reads the
+    // user's current binding (Settings > Navigation) - the key named in each
+    // comment below is only the default.
+    // Undo/Redo - Ctrl is polled from the hardware as well as ImGui so the
+    // chord works even when ImGui has text input focus.
+    if (keyPressed(KeyAction::Undo, false)) {
         // Also blocked while a confirmed operation is still QUEUED. A
         // deferred commit runs between frames, and cleanup() has already
         // cleared active() by then, so without this an undo in the same frame
@@ -3069,7 +3122,7 @@ void Application::handleShortcuts() {
             }
         }
     }
-    if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
+    if (keyPressed(KeyAction::Redo, false)) {
         // Also blocked while a confirmed operation is still QUEUED. A
         // deferred commit runs between frames, and cleanup() has already
         // cleared active() by then, so without this an undo in the same frame
@@ -3101,7 +3154,7 @@ void Application::handleShortcuts() {
     }
     // Ctrl+A: context-aware select-all. Skipped when ImGui has text-input focus
     // so the standard "select all text" behaviour in input fields still works.
-    if (ctrlHeld && ImGui::IsKeyPressed(ImGuiKey_A, false) && !io.WantTextInput) {
+    if (keyPressed(KeyAction::SelectAll, false) && !io.WantTextInput) {
         if (m_inSketchMode && m_activeSketch && m_sketchTool) {
             // In a sketch: hand off to the sketch tool's selectAll (also wired
             // to the double-click shortcut).
@@ -3151,10 +3204,10 @@ void Application::handleShortcuts() {
             }
         }
     }
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_I)) {
+    if (keyPressed(KeyAction::ImportStep)) {
         importStepFile();
     }
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_E)) {
+    if (keyPressed(KeyAction::ExportStep)) {
         exportStepFile();
     }
     // Ctrl+S = SAVE, matching what the File menu has always advertised next to
@@ -3163,26 +3216,28 @@ void Application::handleShortcuts() {
     // while the menu item it was printed beside saved in place (Steve,
     // 2026-07-28). saveProjectQuick falls back to the picker on its own when
     // the project has never been saved.
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+    if (keyPressed(KeyAction::Save)) {
         saveProjectQuick();
     }
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) {
+    if (keyPressed(KeyAction::Open)) {
         loadProject();
     }
     // Ctrl+Tab cycles the open tabs (Shift reverses). No-op with one tab, and
     // inert while the landing page owns the screen - switching the session
     // behind a full-screen page changes nothing visible but leaves the next
     // click acting on a tab the user can't see (Steve, 2026-07-28).
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Tab) && m_sessions.size() > 1 &&
-        !landingPageUp()) {
-        const size_t n = m_sessions.size();
-        switchToSession(io.KeyShift ? (m_activeSession + n - 1) % n
+    {
+        const bool nextTab = keyPressed(KeyAction::NextTab);
+        const bool prevTab = keyPressed(KeyAction::PrevTab);
+        if ((nextTab || prevTab) && m_sessions.size() > 1 && !landingPageUp()) {
+            const size_t n = m_sessions.size();
+            switchToSession(prevTab ? (m_activeSession + n - 1) % n
                                     : (m_activeSession + 1) % n);
+        }
     }
     // Plain D - Dimension tool in sketch mode (Onshape-style). Ctrl+D stays
     // Duplicate (handled below); text-input focus swallows the key.
-    if (m_inSketchMode && m_sketchTool && !io.KeyCtrl && !io.WantTextInput &&
-        ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+    if (m_inSketchMode && m_sketchTool && keyPressed(KeyAction::DimensionTool, false)) {
         m_sketchTool->setMode(SketchToolMode::Dimension);
     }
     // Ctrl+D - Duplicate in place. Branches on selection type:
@@ -3195,7 +3250,7 @@ void Application::handleShortcuts() {
     // After the duplicate lands the SELECTION is replaced with the new
     // entity so the user immediately operates on the fresh copy. Skipped
     // when a text field has focus so it doesn't fire while typing.
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D) &&
+    if (keyPressed(KeyAction::Duplicate) &&
         !ImGui::IsAnyItemActive() && m_selection) {
         const auto& sel = m_selection->getSelection();
         if (!sel.empty()) {
@@ -3424,12 +3479,12 @@ void Application::handleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) && m_moveFaceCtl.active()) {
         commitMoveFace();
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Home)) {
+    if (keyPressed(KeyAction::ResetCamera)) {
         m_viewport->getCamera().reset();
     }
     // F9 = collapse/restore BOTH docked side columns (max-viewport toggle).
     // Guarded against text fields so it doesn't fire mid-typing.
-    if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F9)) {
+    if (keyPressed(KeyAction::TogglePanels)) {
         bool hide = !(m_leftPanelHidden && m_rightPanelHidden);
         m_leftPanelHidden = m_rightPanelHidden = hide;
         saveAppSettings();
@@ -3441,14 +3496,14 @@ void Application::handleShortcuts() {
     // origin object. Suppressed in sketch mode + while a text field has
     // focus so it doesn't fire while typing constraint values.
     if (!m_inSketchMode && !ImGui::IsAnyItemActive() &&
-        ImGui::IsKeyPressed(ImGuiKey_F)) {
+        keyPressed(KeyAction::FrameSelection)) {
         frameSelection();
     }
     // Delete: while in sketch mode, restrict to sketch-element deletion so the
     // host body (which stays selected to keep its face highlighted, per the
     // Ctrl+Z fix) doesn't get nuked under the user's nose. Outside sketch mode
     // Delete still removes selected bodies / sketches through history.
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+    if (keyPressed(KeyAction::Delete)) {
         if (m_inSketchMode && m_activeSketch && m_sketchTool) {
             // Delete the sketch-element selection only - the host body (which
             // stays selected to keep its face highlighted) must not get nuked.
@@ -3496,18 +3551,18 @@ void Application::handleShortcuts() {
             m_hoveredBodyId = -1;
         }
     }
-    // Gizmo mode switching. WantTextInput is true while an InputText (rename
-    // field, dimension input, etc.) has focus - letting W/E/R fire there both
-    // switches gizmo mode AND inserts the character, which is rude.
-    if (!m_inSketchMode && !io.KeyCtrl && !io.WantTextInput) {
+    // Gizmo mode switching. keyPressed() ignores a plain key while an InputText
+    // (rename field, dimension input, etc.) has focus - letting W/E/R fire there
+    // both switches gizmo mode AND inserts the character, which is rude.
+    if (!m_inSketchMode) {
         bool changed = false;
-        if (ImGui::IsKeyPressed(ImGuiKey_W)) {
+        if (keyPressed(KeyAction::GizmoTranslate)) {
             m_gizmo->setMode(GizmoMode::Translate); changed = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_E)) {
+        if (keyPressed(KeyAction::GizmoRotate)) {
             m_gizmo->setMode(GizmoMode::Rotate); changed = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+        if (keyPressed(KeyAction::GizmoScale)) {
             m_gizmo->setMode(GizmoMode::Scale); changed = true;
         }
         // Explicit ask for a gizmo: drop any navigation-only suppression.

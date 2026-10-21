@@ -1,5 +1,6 @@
 #pragma once
 #include "../platform_defs.h"
+#include <map>
 #include <string>
 #include <vector>
 
@@ -122,6 +123,13 @@ struct AppSettings {
     float touchZoomSens     = 1.0f;
     bool  showToolbarTooltips = true; // hover-tip describing each toolbar button
     bool  showFps           = true;   // small FPS readout (im-touch layout, top-centre)
+
+    // Keyboard-shortcut overrides, action id -> chord text ("Ctrl+Shift+S", or
+    // "none" for deliberately unbound). Only what differs from the defaults is
+    // kept - see KeyBindings::toOverrides - so a default changed in a later
+    // version still reaches everyone who never rebound it. Serialized as
+    // indexed-by-name bind_<id> keys.
+    std::map<std::string, std::string> keyBindings;
 
     // --- Session ---
     // Restore the previous session on launch: every project that was open in a
