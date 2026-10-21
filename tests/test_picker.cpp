@@ -301,3 +301,90 @@ TEST(Picker, EdgeHiddenBehindANearerFaceIsNotPicked) {
                 << "picked an edge of the rib hidden behind the boss";
     }
 }
+
+// ─── Edge-only fallback ─────────────────────────────────────────────────────
+// A click just OUTSIDE a silhouette edge misses every face, so edge promotion
+// (which only runs after a face hit) never ran and half the edge's hit zone was
+// dead ("selecting an edge works on the second or third attempt").
+
+namespace {
+
+glm::vec2 toScreen(const Camera& cam, const glm::vec3& p) {
+    const glm::vec4 c = cam.getProjectionMatrix() * cam.getViewMatrix() * glm::vec4(p, 1.0f);
+    return glm::vec2((c.x / c.w * 0.5f + 0.5f) * kW, (0.5f - c.y / c.w * 0.5f) * kH);
+}
+
+// Screen position of the cube's leftmost projected corner: nothing of the body
+// lies to its left, so a point a few pixels further left is guaranteed to be
+// off the silhouette, yet within a few pixels of the edges meeting at it.
+glm::vec2 leftmostCorner(const Camera& cam, double size) {
+    glm::vec2 best(1e9f, 0.0f);
+    for (int i = 0; i < 8; ++i) {
+        const glm::vec2 s = toScreen(cam, glm::vec3((i & 1) ? size : 0.0, (i & 2) ? size : 0.0,
+                                                    (i & 4) ? size : 0.0));
+        if (s.x < best.x) best = s;
+    }
+    return best;
+}
+
+} // namespace
+
+TEST(Picker, ClickJustOutsideASilhouetteEdgePicksThatEdge) {
+    Document doc;
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 20.0, 20.0).Shape();
+    doc.addBody(box, "box");
+    meshLikeRendererLow(box);
+    Camera cam = framing(box);
+    const glm::vec2 corner = leftmostCorner(cam, 20.0);
+    Picker picker;
+
+    // Without the fallback the click misses (the old behaviour).
+    PickResult off = picker.pick(corner.x - 3.0f, corner.y, kW, kH, cam, doc);
+    EXPECT_FALSE(off.hit);
+    EXPECT_FALSE(off.edgeOnlyHit);
+
+    // With it, the click is an edge-only hit on that body - and `hit` stays
+    // false so no face/plane consumer sees a phantom face.
+    PickResult on = picker.pick(corner.x - 3.0f, corner.y, kW, kH, cam, doc, 8.0f);
+    EXPECT_FALSE(on.hit);
+    ASSERT_TRUE(on.edgeOnlyHit);
+    EXPECT_FALSE(on.nearestEdge.IsNull());
+    EXPECT_LT(on.edgeScreenDist, 8.0f);
+    EXPECT_EQ(on.bodyId, doc.getAllBodyIds().front());
+}
+
+TEST(Picker, EdgeFallbackHasARadiusAndYieldsToARealFaceHit) {
+    Document doc;
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 20.0, 20.0).Shape();
+    doc.addBody(box, "box");
+    meshLikeRendererLow(box);
+    Camera cam = framing(box);
+    const glm::vec2 corner = leftmostCorner(cam, 20.0);
+    Picker picker;
+
+    // Well outside the radius: nothing.
+    PickResult far = picker.pick(corner.x - 60.0f, corner.y, kW, kH, cam, doc, 8.0f);
+    EXPECT_FALSE(far.hit);
+    EXPECT_FALSE(far.edgeOnlyHit);
+
+    // Over the body's face: an ordinary hit, never an edge-only one.
+    PickResult mid = picker.pick(kW * 0.5f, kH * 0.5f, kW, kH, cam, doc, 8.0f);
+    EXPECT_TRUE(mid.hit);
+    EXPECT_FALSE(mid.edgeOnlyHit);
+}
+
+TEST(Picker, EdgeFallbackRadiusIsPartOfTheCacheKey) {
+    Document doc;
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 20.0, 20.0).Shape();
+    doc.addBody(box, "box");
+    meshLikeRendererLow(box);
+    Camera cam = framing(box);
+    const glm::vec2 corner = leftmostCorner(cam, 20.0);
+    Picker picker;
+    const float x = corner.x - 3.0f, y = corner.y;
+    // Same cursor, camera and document: a changed radius must not be answered
+    // from the previous result.
+    EXPECT_FALSE(picker.pick(x, y, kW, kH, cam, doc, 0.0f).edgeOnlyHit);
+    EXPECT_TRUE(picker.pick(x, y, kW, kH, cam, doc, 8.0f).edgeOnlyHit);
+    EXPECT_FALSE(picker.pick(x, y, kW, kH, cam, doc, 0.0f).edgeOnlyHit);
+}

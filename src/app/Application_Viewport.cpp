@@ -5008,8 +5008,14 @@ void Application::renderViewport() {
                 if (!gizmoConsumedInput && !m_viewCube->wasHovered() &&
                     !m_snapWidgetHovered && !m_revolveArcWasHovered &&
                     !camDragging) {
+                    // Edge-only fallback radius = the click's own edge-promotion
+                    // radius (see the select branch below), so a click just
+                    // outside a silhouette edge picks it like one just inside.
+                    const float edgeFallbackPx = materializr::touchMode()
+                        ? 24.0f : 8.0f * uiScale();
                     auto result = m_picker->pick(localX, localY,
-                        contentSize.x, contentSize.y, cam, *m_document);
+                        contentSize.x, contentSize.y, cam, *m_document,
+                        edgeFallbackPx);
                     // Cache for the zoom handler: cursor-zoom needs the
                     // point under the cursor, and re-picking the whole
                     // document on EVERY wheel tick made zooming stutter on
@@ -5566,6 +5572,21 @@ void Application::renderViewport() {
                                 m_pickCycleTick = ImGui::GetTime();
                                 m_pickCycleLast = 0; // face picked; same-spot → region
                             }
+                        } else if (result.edgeOnlyHit && !result.nearestEdge.IsNull()) {
+                            // The ray missed every face but a visible edge is
+                            // within the pick radius: a click just OUTSIDE a
+                            // silhouette edge. Same selection the face branch
+                            // makes when the cursor is just inside it.
+                            SelectionEntry entry;
+                            entry.type = SelectionType::Edge;
+                            entry.bodyId = result.bodyId;
+                            entry.shape = result.nearestEdge;
+                            if (io.KeyCtrl) m_selection->toggleSelection(entry);
+                            else            m_selection->select(entry);
+                            ImVec2 mpE = ImGui::GetMousePos();
+                            m_pickCyclePos = glm::vec2(mpE.x, mpE.y);
+                            m_pickCycleTick = ImGui::GetTime();
+                            m_pickCycleLast = -1;
                         } else {
                             // Empty-space click: begin a box-select drag instead of
                             // clearing immediately. The release handler below decides

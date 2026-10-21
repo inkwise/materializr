@@ -30,6 +30,12 @@ struct PickResult {
     // SelectionType::Axis entry.
     int axisId = -1;
     TopoDS_Shape pickedShape;    // the picked face
+    // Set, with `hit` still FALSE, when the ray missed every face but a visible
+    // edge lies within the caller's edge-fallback radius of the cursor - a click
+    // just OUTSIDE a silhouette edge, where half the edge's hit zone is over
+    // background. bodyId / nearestEdge / edgeScreenDist are filled; nothing else
+    // (no face, hit point or plane) is, and every `hit` consumer is unaffected.
+    bool edgeOnlyHit = false;
     TopoDS_Shape nearestEdge;    // closest edge to hit point (if any)
     float edgeScreenDist = 1e6f; // screen distance to nearest edge in pixels
     // Closest vertex of the picked face to the cursor in screen pixels.
@@ -70,10 +76,14 @@ public:
     // sites need no plumbing.
     static bool s_verbose;
 
-    // Cast a ray from screen coordinates and find the nearest hit
+    // Cast a ray from screen coordinates and find the nearest hit.
+    // `edgeFallbackPx` > 0 enables the edge-only fallback (see PickResult::
+    // edgeOnlyHit) with that screen radius. It is part of the unchanged-frame
+    // cache key, and 0 (the default) costs nothing.
     PickResult pick(float screenX, float screenY,
                     float viewportWidth, float viewportHeight,
-                    const Camera& camera, const Document& doc);
+                    const Camera& camera, const Document& doc,
+                    float edgeFallbackPx = 0.0f);
 
     // Hover calls pick() every rendered frame. When nothing it reads has
     // changed since the previous call (cursor, viewport, camera, and the
@@ -149,13 +159,15 @@ private:
     // something hidden cannot force a re-pick.
     struct PickInputs {
         float sx = 0.0f, sy = 0.0f, vpW = 0.0f, vpH = 0.0f;
+        float edgeFallbackPx = 0.0f;
         glm::mat4 view{1.0f};
         glm::mat4 proj{1.0f};
         std::vector<std::pair<int, TopoDS_Shape>> bodies;
         std::vector<double> datums;
     };
     static void gatherInputs(PickInputs& out, float sx, float sy, float vpW, float vpH,
-                             const Camera& camera, const Document& doc);
+                             const Camera& camera, const Document& doc,
+                             float edgeFallbackPx);
     static bool sameInputs(const PickInputs& a, const PickInputs& b);
     PickInputs m_lastInputs;
     PickInputs m_nextInputs; // scratch; swapped into m_lastInputs on a miss
@@ -174,6 +186,14 @@ private:
                          const Camera& camera,
                          TopoDS_Shape& nearestEdge, float& screenDist,
                          const std::function<bool(const glm::vec3&)>& occluded = {});
+
+    // Edge-only fallback for a ray that missed every face: nearest visible edge
+    // within `radiusPx` of the cursor, across all bodies near it on screen. Fills
+    // result.edgeOnlyHit / bodyId / nearestEdge / edgeScreenDist on success.
+    void pickEdgeOnly(float screenX, float screenY, float vpW, float vpH,
+                      const Camera& camera, const Document& doc,
+                      const std::vector<int>& bodyIds, float radiusPx,
+                      PickResult& result);
 
     // True when some visible body's surface lies between the camera and `p`
     // (so an edge at `p` cannot be seen). The tangent-plane test in

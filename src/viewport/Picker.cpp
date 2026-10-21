@@ -401,6 +401,72 @@ void Picker::findNearestEdge(const TopoDS_Shape& shape, const glm::vec3& hitPt,
     }
 }
 
+void Picker::pickEdgeOnly(float screenX, float screenY, float vpW, float vpH,
+                          const Camera& camera, const Document& doc,
+                          const std::vector<int>& bodyIds, float radiusPx,
+                          PickResult& result)
+{
+    const glm::mat4 vp = camera.getProjectionMatrix() * camera.getViewMatrix();
+    float bestD = radiusPx;
+    int bestBody = -1;
+    TopoDS_Shape bestEdge;
+
+    for (int bodyId : bodyIds) {
+        if (!doc.isBodyVisible(bodyId) || doc.isBodyMesh(bodyId)) continue;
+        const TopoDS_Shape& shape = doc.getBody(bodyId);
+        if (shape.IsNull()) continue;
+
+        // Cheap reject before any per-segment work: project the body's cached
+        // box to the screen and skip it unless the cursor is within the radius
+        // of that rectangle. Hover runs this on every missed frame, so a body
+        // nowhere near the cursor must cost eight projections, not its edges.
+        BodyCacheEntry& entry = bodyCache(shape);
+        if (!entry.haveBox) {
+            BRepBndLib::Add(shape, entry.box);
+            entry.haveBox = true;
+        }
+        if (entry.box.IsVoid()) continue;
+        double x0, y0, z0, x1, y1, z1;
+        entry.box.Get(x0, y0, z0, x1, y1, z1);
+        float sMinX = 1e9f, sMinY = 1e9f, sMaxX = -1e9f, sMaxY = -1e9f;
+        bool behind = false;
+        for (int i = 0; i < 8 && !behind; ++i) {
+            glm::vec4 c = vp * glm::vec4((i & 1) ? x1 : x0, (i & 2) ? y1 : y0,
+                                         (i & 4) ? z1 : z0, 1.0f);
+            if (c.w < 1e-6f) { behind = true; break; }   // straddles the eye: don't reject
+            const float sx = (c.x / c.w * 0.5f + 0.5f) * vpW;
+            const float sy = (0.5f - c.y / c.w * 0.5f) * vpH;
+            sMinX = std::min(sMinX, sx); sMaxX = std::max(sMaxX, sx);
+            sMinY = std::min(sMinY, sy); sMaxY = std::max(sMaxY, sy);
+        }
+        if (!behind &&
+            (screenX < sMinX - radiusPx || screenX > sMaxX + radiusPx ||
+             screenY < sMinY - radiusPx || screenY > sMaxY + radiusPx))
+            continue;
+
+        TopoDS_Shape edge;
+        float d = 1e6f;
+        // Zero plane normal: there is no picked face to take a side from. The
+        // occlusion callback still rejects an edge hidden behind another body.
+        findNearestEdge(shape, glm::vec3(0.0f), glm::vec3(0.0f),
+                        screenX, screenY, vpW, vpH, camera, edge, d,
+                        [&](const glm::vec3& wp) {
+                            return pointOccluded(wp, camera, doc, kOcclusionTolMm);
+                        });
+        if (!edge.IsNull() && d < bestD) {
+            bestD = d;
+            bestBody = bodyId;
+            bestEdge = edge;
+        }
+    }
+
+    if (bestBody < 0) return;
+    result.edgeOnlyHit = true;
+    result.bodyId = bestBody;
+    result.nearestEdge = bestEdge;
+    result.edgeScreenDist = bestD;
+}
+
 bool Picker::pointOccluded(const glm::vec3& p, const Camera& camera,
                            const Document& doc, float tolMm)
 {
@@ -436,9 +502,11 @@ bool Picker::pointOccluded(const glm::vec3& p, const Camera& camera,
 }
 
 void Picker::gatherInputs(PickInputs& out, float sx, float sy, float vpW, float vpH,
-                          const Camera& camera, const Document& doc)
+                          const Camera& camera, const Document& doc,
+                          float edgeFallbackPx)
 {
     out.sx = sx; out.sy = sy; out.vpW = vpW; out.vpH = vpH;
+    out.edgeFallbackPx = edgeFallbackPx;
     out.view = camera.getViewMatrix();
     out.proj = camera.getProjectionMatrix();
     out.bodies.clear();
@@ -471,6 +539,7 @@ void Picker::gatherInputs(PickInputs& out, float sx, float sy, float vpW, float 
 bool Picker::sameInputs(const PickInputs& a, const PickInputs& b)
 {
     if (a.sx != b.sx || a.sy != b.sy || a.vpW != b.vpW || a.vpH != b.vpH) return false;
+    if (a.edgeFallbackPx != b.edgeFallbackPx) return false;
     if (a.view != b.view || a.proj != b.proj) return false;
     if (a.datums != b.datums || a.bodies.size() != b.bodies.size()) return false;
     for (size_t i = 0; i < a.bodies.size(); ++i) {
@@ -483,7 +552,8 @@ bool Picker::sameInputs(const PickInputs& a, const PickInputs& b)
 
 PickResult Picker::pick(float screenX, float screenY,
                         float viewportWidth, float viewportHeight,
-                        const Camera& camera, const Document& doc)
+                        const Camera& camera, const Document& doc,
+                        float edgeFallbackPx)
 {
     PickResult result;
 
@@ -492,7 +562,7 @@ PickResult Picker::pick(float screenX, float screenY,
     m_lastCached = false;
     if (!s_verbose) {
         gatherInputs(m_nextInputs, screenX, screenY, viewportWidth, viewportHeight,
-                     camera, doc);
+                     camera, doc, edgeFallbackPx);
         if (m_lastValid && sameInputs(m_nextInputs, m_lastInputs)) {
             m_lastCached = true;
             return m_lastResult;
@@ -697,6 +767,16 @@ PickResult Picker::pick(float screenX, float screenY,
         }
     }
 
+    // ─── Edge-only fallback ───────────────────────────────────────────────
+    // The ray hit no face, so the edge-promotion above never ran. A click just
+    // OUTSIDE a silhouette edge (the edge bordering background) lands here: half
+    // of its hit zone is off the body, so it selected nothing and the edge took
+    // "a second or third attempt". Look for a visible edge within the radius.
+    if (!result.hit && edgeFallbackPx > 0.0f) {
+        pickEdgeOnly(screenX, screenY, viewportWidth, viewportHeight, camera, doc,
+                     bodyIds, edgeFallbackPx, result);
+    }
+
     // ─── Construction-plane hit-test ──────────────────────────────────────
     // Planes are rendered as finite quads (halfSize × halfSize around the
     // origin in the plane's local X/Y). Ray-vs-plane gives t; checking
@@ -707,6 +787,7 @@ PickResult Picker::pick(float screenX, float screenY,
     {
         std::vector<int> planeIds = doc.getAllPlaneIds();
         for (int pid : planeIds) {
+            if (result.edgeOnlyHit) break;   // an edge under the cursor beats a datum
             if (!doc.isPlaneVisible(pid)) continue;
             const auto* entry = doc.getPlane(pid);
             if (!entry) continue;
@@ -762,7 +843,7 @@ PickResult Picker::pick(float screenX, float screenY,
     // standard cross-product magnitude over the parallelogram base.
     {
         std::vector<int> axisIds = doc.getAllAxisIds();
-        if (!axisIds.empty()) {
+        if (!axisIds.empty() && !result.edgeOnlyHit) {
             const float hitPxRadius = 6.0f;
             // Approximate world units per pixel at any depth: convert one
             // pixel of horizontal extent at depth d to world units via the
