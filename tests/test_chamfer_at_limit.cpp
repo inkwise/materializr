@@ -5,6 +5,7 @@
 // sliver. A value that is genuinely too big must still be refused.
 
 #include "modeling/ChamferOp.h"
+#include "modeling/FilletOp.h"
 #include "core/Document.h"
 
 #include <gtest/gtest.h>
@@ -57,6 +58,20 @@ bool chamferAt(double d, TopoDS_Shape* out = nullptr) {
     return ok;
 }
 
+bool filletAt(double r, TopoDS_Shape* out = nullptr) {
+    Document doc;
+    int id = doc.addBody(steppedShaft(), "shaft");
+    TopoDS_Edge e = innerCorner(doc.getBody(id));
+    EXPECT_FALSE(e.IsNull());
+    FilletOp op;
+    op.setBody(id);
+    op.setEdges({e});
+    op.setRadius(r);
+    const bool ok = op.execute(doc);
+    if (ok && out) *out = doc.getBody(id);
+    return ok;
+}
+
 } // namespace
 
 TEST(ChamferAtLimit, WellInsideTheShoulderBuilds) {
@@ -74,4 +89,23 @@ TEST(ChamferAtLimit, ExactlyTheShoulderWidthBuildsAsAValidSolid) {
 
 TEST(ChamferAtLimit, WayPastTheShoulderIsStillRefused) {
     EXPECT_FALSE(chamferAt(3.0));
+}
+
+// Same limit for a fillet: a 1 mm round into the 1 mm shoulder consumes the
+// whole face.
+TEST(FilletAtLimit, WellInsideTheShoulderBuilds) {
+    EXPECT_TRUE(filletAt(0.5));
+}
+
+TEST(FilletAtLimit, ExactlyTheShoulderWidthBuildsAsAValidSolid) {
+    TopoDS_Shape r;
+    ASSERT_TRUE(filletAt(1.0, &r)) << "radius == shoulder width must build";
+    EXPECT_TRUE(BRepCheck_Analyzer(r).IsValid());
+    GProp_GProps g;
+    BRepGProp::VolumeProperties(r, g);
+    EXPECT_GT(g.Mass(), 1000.0);
+}
+
+TEST(FilletAtLimit, WayPastTheShoulderIsStillRefused) {
+    EXPECT_FALSE(filletAt(3.0));
 }
