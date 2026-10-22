@@ -363,9 +363,9 @@ TEST(Picker, EdgeFallbackHasARadiusAndYieldsToARealFaceHit) {
     Picker picker;
 
     // Well outside the radius: nothing.
-    PickResult far = picker.pick(corner.x - 60.0f, corner.y, kW, kH, cam, doc, 8.0f);
-    EXPECT_FALSE(far.hit);
-    EXPECT_FALSE(far.edgeOnlyHit);
+    PickResult distant = picker.pick(corner.x - 60.0f, corner.y, kW, kH, cam, doc, 8.0f);
+    EXPECT_FALSE(distant.hit);
+    EXPECT_FALSE(distant.edgeOnlyHit);
 
     // Over the body's face: an ordinary hit, never an edge-only one.
     PickResult mid = picker.pick(kW * 0.5f, kH * 0.5f, kW, kH, cam, doc, 8.0f);
