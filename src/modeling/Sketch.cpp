@@ -633,8 +633,10 @@ glm::vec2 catmullRomPoint(glm::vec2 p0, glm::vec2 p1, glm::vec2 p2,
 } // anonymous
 
 std::vector<glm::vec2> Sketch::interpolate2D(const std::vector<glm::vec2>& ctrl,
-                                             int segsPerSpan, bool closed) {
+                                             int segsPerSpan, bool closed,
+                                             std::vector<int>* spanStartIdx) {
     int n = static_cast<int>(ctrl.size());
+    if (spanStartIdx) spanStartIdx->clear();
     if (n < 2) return ctrl;
     auto at = [&](int i) -> glm::vec2 {
         if (closed) return ctrl[((i % n) + n) % n];
@@ -668,12 +670,14 @@ std::vector<glm::vec2> Sketch::interpolate2D(const std::vector<glm::vec2>& ctrl,
         const int segs = std::clamp(
             static_cast<int>(std::ceil(spanLen / kTargetSegMm)),
             segsPerSpan, kMaxSegsPerSpan);
+        if (spanStartIdx) spanStartIdx->push_back(static_cast<int>(out.size()));
         for (int i = 0; i < segs; ++i) {
             float t = static_cast<float>(i) / segs;
             out.push_back(catmullRomPoint(at(s - 1), at(s), at(s + 1),
                                           at(s + 2), t));
         }
     }
+    if (spanStartIdx) spanStartIdx->push_back(static_cast<int>(out.size()));
     out.push_back(closed ? ctrl[0] : ctrl[n - 1]);
     return out;
 }
@@ -694,10 +698,15 @@ static void thinSamplesForFit(std::vector<glm::vec2>& samp, size_t cap = 600) {
 }
 
 std::vector<glm::vec2> Sketch::sampleSpline2D(const SketchSpline& sp,
-                                              int segsPerSpan) const {
+                                              int segsPerSpan,
+                                              std::vector<int>* ctrlSampleIdx,
+                                              std::vector<int>* ctrlIds) const {
+    if (ctrlSampleIdx) ctrlSampleIdx->clear();
+    if (ctrlIds) ctrlIds->clear();
     const auto& ids = sp.controlPointIds;
     bool closedSp = ids.size() > 2 && ids.front() == ids.back();
     std::vector<glm::vec2> ctrl;
+    std::vector<int> usedIds;
     ctrl.reserve(ids.size());
     size_t n = ids.size() - (closedSp ? 1 : 0);
     for (size_t k = 0; k < n; ++k) {
@@ -708,9 +717,16 @@ std::vector<glm::vec2> Sketch::sampleSpline2D(const SketchSpline& sp,
         // was gone - every classification against it then missed by miles.
         if (!p) continue;
         ctrl.push_back(p->pos);
+        usedIds.push_back(ids[k]);
     }
     if (ctrl.size() < 2) return {};
-    return interpolate2D(ctrl, segsPerSpan, closedSp);
+    if (!ctrlSampleIdx && !ctrlIds) return interpolate2D(ctrl, segsPerSpan, closedSp);
+    std::vector<glm::vec2> out = interpolate2D(ctrl, segsPerSpan, closedSp, ctrlSampleIdx);
+    if (ctrlIds) {
+        *ctrlIds = usedIds;
+        if (closedSp) ctrlIds->push_back(usedIds.front());
+    }
+    return out;
 }
 
 const std::vector<SketchPolygon>& Sketch::getPolygons() const {
@@ -805,6 +821,14 @@ void Sketch::removeElement(int id) {
         std::remove_if(m_points.begin(), m_points.end(),
             [id](const SketchPoint& p) { return p.id == id; }),
         m_points.end());
+}
+
+bool Sketch::explodePolygon(int id) {
+    auto it = std::find_if(m_polygons.begin(), m_polygons.end(),
+        [id](const SketchPolygon& p) { return p.id == id; });
+    if (it == m_polygons.end()) return false;
+    m_polygons.erase(it);
+    return true;
 }
 
 void Sketch::removeElements(const std::vector<int>& ids) {

@@ -4,7 +4,9 @@
 #include "../touch_mode.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -3022,8 +3024,13 @@ void SketchTool::removeLastSplinePoint() {
 //
 // The trim tool removes the segment of a sketch element between its two nearest
 // intersections with any other element. If the element has no intersections,
-// the whole element is removed. Splines and polygons are not split - clicking
-// one removes it entirely.
+// the whole element is removed.
+//
+// Splines are cut like anything else: crossings are found on the sampled curve
+// (other splines, lines, arcs, circles, standalone points, and the spline
+// crossing itself), and what is left becomes new splines ending on the cut. A
+// polygon edge is cut as the plain line it is, the polygon dissolving into
+// lines first; an edge nothing crosses still removes the whole polygon.
 
 namespace {
 
@@ -3127,6 +3134,107 @@ void intersectCircleCircle(glm::vec2 c1, float r1, glm::vec2 c2, float r2,
         float theta = std::atan2(p.y - c1.y, p.x - c1.x);
         out.push_back({p, theta});
         if (h < 1e-6f) break; // tangent
+    }
+}
+
+// ── Splines as polylines ────────────────────────────────────────────────────
+// Trim treats a spline as its sampled curve (24 samples a span, the same density
+// the pick uses). A hit's `param` is a SAMPLE COORDINATE: i + t for a point a
+// fraction t along segment i of the polyline, so it converts straight back to a
+// position and to "which control points lie before this cut".
+constexpr int kTrimSplineSegs = 24;
+
+// Point at sample coordinate s (clamped to the polyline).
+glm::vec2 polylineAt(const std::vector<glm::vec2>& P, float s) {
+    if (P.empty()) return glm::vec2(0.0f);
+    if (s <= 0.0f) return P.front();
+    float maxS = static_cast<float>(P.size() - 1);
+    if (s >= maxS) return P.back();
+    int i = static_cast<int>(s);
+    float t = s - static_cast<float>(i);
+    return P[i] + t * (P[i + 1] - P[i]);
+}
+
+// Nearest point on the polyline to q: its sample coordinate, and squared distance.
+float polylineNearest(const std::vector<glm::vec2>& P, glm::vec2 q, float* outS) {
+    float best = std::numeric_limits<float>::max();
+    float bestS = 0.0f;
+    for (size_t i = 0; i + 1 < P.size(); ++i) {
+        float t;
+        float d = distSqPointSegment(q, P[i], P[i + 1], &t);
+        if (d < best) { best = d; bestS = static_cast<float>(i) + t; }
+    }
+    if (outS) *outS = bestS;
+    return best;
+}
+
+// Segment-segment intersection; t along a0→a1, u along b0→b1, both in [0,1].
+bool segSeg(glm::vec2 a0, glm::vec2 a1, glm::vec2 b0, glm::vec2 b1, float& t, float& u) {
+    glm::vec2 d1 = a1 - a0;
+    glm::vec2 d2 = b1 - b0;
+    float denom = d1.x * d2.y - d1.y * d2.x;
+    if (std::abs(denom) < 1e-12f) return false;
+    t = ((b0.x - a0.x) * d2.y - (b0.y - a0.y) * d2.x) / denom;
+    u = ((b0.x - a0.x) * d1.y - (b0.y - a0.y) * d1.x) / denom;
+    const float eps = 1e-4f;
+    return t >= -eps && t <= 1.0f + eps && u >= -eps && u <= 1.0f + eps;
+}
+
+struct ChunkBox { glm::vec2 lo, hi; };
+
+// Bounding boxes over runs of kChunk segments. A traced spline can be many
+// thousands of samples and Trim re-plans on every mouse move, so spline-vs-
+// spline walks chunk pairs first and only descends into overlapping ones.
+constexpr size_t kChunk = 16;
+
+std::vector<ChunkBox> chunkBoxes(const std::vector<glm::vec2>& P, float pad) {
+    std::vector<ChunkBox> out;
+    for (size_t i = 0; i + 1 < P.size(); i += kChunk) {
+        size_t last = std::min(i + kChunk, P.size() - 1);
+        ChunkBox b{P[i], P[i]};
+        for (size_t k = i; k <= last; ++k) {
+            b.lo = glm::min(b.lo, P[k]);
+            b.hi = glm::max(b.hi, P[k]);
+        }
+        b.lo -= glm::vec2(pad);
+        b.hi += glm::vec2(pad);
+        out.push_back(b);
+    }
+    return out;
+}
+
+bool boxesOverlap(const ChunkBox& a, const ChunkBox& b) {
+    return a.lo.x <= b.hi.x && b.lo.x <= a.hi.x && a.lo.y <= b.hi.y && b.lo.y <= a.hi.y;
+}
+
+// Crossings between polylines A and B as (sampleCoordInA, sampleCoordInB).
+// With `self` set, B is A: adjacent segments are skipped (they only share a
+// vertex), as is the closing pair of a closed curve, and each crossing is
+// reported once.
+void intersectPolylines(const std::vector<glm::vec2>& A, const std::vector<glm::vec2>& B,
+                        bool self, bool closed,
+                        std::vector<std::pair<float, float>>& out) {
+    if (A.size() < 2 || B.size() < 2) return;
+    const std::vector<ChunkBox> ba = chunkBoxes(A, 1e-3f);
+    const std::vector<ChunkBox> bb = self ? ba : chunkBoxes(B, 1e-3f);
+    const size_t nA = A.size() - 1, nB = B.size() - 1;
+    for (size_t ca = 0; ca < ba.size(); ++ca) {
+        for (size_t cb = self ? ca : 0; cb < bb.size(); ++cb) {
+            if (!boxesOverlap(ba[ca], bb[cb])) continue;
+            size_t i0 = ca * kChunk, i1 = std::min(i0 + kChunk, nA);
+            size_t j0 = cb * kChunk, j1 = std::min(j0 + kChunk, nB);
+            for (size_t i = i0; i < i1; ++i) {
+                for (size_t j = j0; j < j1; ++j) {
+                    if (self) {
+                        if (j < i + 2) continue;
+                        if (closed && i == 0 && j == nA - 1) continue;
+                    }
+                    float t, u;
+                    if (!segSeg(A[i], A[i + 1], B[j], B[j + 1], t, u)) continue;
+                    out.emplace_back(static_cast<float>(i) + t, static_cast<float>(j) + u);
+                }
+            }
+        }
     }
 }
 
@@ -3247,6 +3355,11 @@ static void collectLineIntersections(const Sketch& sketch, const SketchLine& tar
         float endA = std::atan2(e->pos.y - c->pos.y, e->pos.x - c->pos.x);
         intersectLineArc(p1, p2, c->pos, static_cast<float>(ar.radius), startA, endA, out);
     }
+    for (const auto& sp : sketch.getSplines()) {
+        const std::vector<glm::vec2> samp = sketch.sampleSpline2D(sp, kTrimSplineSegs);
+        for (size_t i = 0; i + 1 < samp.size(); ++i)
+            intersectLineLine(p1, p2, samp[i], samp[i + 1], out);
+    }
     // A point isn't a curve, so it can never register a geometric
     // intersection the way another line/circle/arc does above - but a point
     // sitting on this line (e.g. placed there with the Point tool) is exactly
@@ -3308,6 +3421,17 @@ static void collectCircleIntersections(const Sketch& sketch, glm::vec2 center, f
             out.push_back({h.pos, wrap2Pi(theta)});
         }
     }
+    for (const auto& sp : sketch.getSplines()) {
+        const std::vector<glm::vec2> samp = sketch.sampleSpline2D(sp, kTrimSplineSegs);
+        for (size_t i = 0; i + 1 < samp.size(); ++i) {
+            std::vector<Hit> tmp;
+            intersectLineCircle(samp[i], samp[i + 1], center, radius, tmp);
+            for (auto& h : tmp) {
+                float theta = std::atan2(h.pos.y - center.y, h.pos.x - center.x);
+                out.push_back({h.pos, wrap2Pi(theta)});
+            }
+        }
+    }
     // Standalone points sitting on this rim - see comment above. A target
     // arc's own start/end points land here too (they ARE on its rim by
     // construction), but that's harmless: the caller's bounds math already
@@ -3324,6 +3448,73 @@ static void collectCircleIntersections(const Sketch& sketch, glm::vec2 center, f
     }
 }
 
+// Every place something else crosses (or touches) spline `target`, as sample
+// coordinates along `samp` (the spline's own sampled polyline). Includes other
+// splines, the spline crossing ITSELF (a loop), and standalone points on it.
+static void collectSplineIntersections(const Sketch& sketch, const SketchSpline& target,
+                                       const std::vector<glm::vec2>& samp, bool closed,
+                                       float threshold, std::vector<float>& out) {
+    for (const auto& ln : sketch.getLines()) {
+        const SketchPoint* c = sketch.getPoint(ln.startPointId);
+        const SketchPoint* d = sketch.getPoint(ln.endPointId);
+        if (!c || !d) continue;
+        for (size_t i = 0; i + 1 < samp.size(); ++i) {
+            float t, u;
+            if (segSeg(samp[i], samp[i + 1], c->pos, d->pos, t, u))
+                out.push_back(static_cast<float>(i) + t);
+        }
+    }
+    for (const auto& ci : sketch.getCircles()) {
+        const SketchPoint* c = sketch.getPoint(ci.centerPointId);
+        if (!c) continue;
+        for (size_t i = 0; i + 1 < samp.size(); ++i) {
+            std::vector<Hit> tmp;
+            intersectLineCircle(samp[i], samp[i + 1], c->pos, static_cast<float>(ci.radius), tmp);
+            for (const auto& h : tmp) out.push_back(static_cast<float>(i) + h.param);
+        }
+    }
+    for (const auto& ar : sketch.getArcs()) {
+        const SketchPoint* c = sketch.getPoint(ar.centerPointId);
+        const SketchPoint* s = sketch.getPoint(ar.startPointId);
+        const SketchPoint* e = sketch.getPoint(ar.endPointId);
+        if (!c || !s || !e) continue;
+        float startA = std::atan2(s->pos.y - c->pos.y, s->pos.x - c->pos.x);
+        float endA = std::atan2(e->pos.y - c->pos.y, e->pos.x - c->pos.x);
+        for (size_t i = 0; i + 1 < samp.size(); ++i) {
+            std::vector<Hit> tmp;
+            intersectLineArc(samp[i], samp[i + 1], c->pos, static_cast<float>(ar.radius),
+                             startA, endA, tmp);
+            for (const auto& h : tmp) out.push_back(static_cast<float>(i) + h.param);
+        }
+    }
+    std::vector<std::pair<float, float>> xs;
+    for (const auto& sp : sketch.getSplines()) {
+        if (sp.id == target.id) {
+            intersectPolylines(samp, samp, true, closed, xs);
+            for (const auto& x : xs) { out.push_back(x.first); out.push_back(x.second); }
+        } else {
+            intersectPolylines(samp, sketch.sampleSpline2D(sp, kTrimSplineSegs), false, false, xs);
+            for (const auto& x : xs) out.push_back(x.first);
+        }
+        xs.clear();
+    }
+    // A standalone point on the curve (Point tool, or another element's end
+    // landing mid-spline) is a boundary too - same rule as for lines.
+    std::unordered_set<int> own(target.controlPointIds.begin(), target.controlPointIds.end());
+    const std::vector<ChunkBox> boxes = chunkBoxes(samp, threshold);
+    const float thresholdSq = threshold * threshold;
+    for (const auto& pt : sketch.getPoints()) {
+        if (pt.fromText || own.count(pt.id)) continue;
+        bool near = false;
+        for (const auto& b : boxes)
+            if (pt.pos.x >= b.lo.x && pt.pos.x <= b.hi.x &&
+                pt.pos.y >= b.lo.y && pt.pos.y <= b.hi.y) { near = true; break; }
+        if (!near) continue;
+        float s;
+        if (polylineNearest(samp, pt.pos, &s) < thresholdSq) out.push_back(s);
+    }
+}
+
 namespace {
 
 // Plan for a single trim click: what to delete, plus the data needed to
@@ -3331,10 +3522,14 @@ namespace {
 // mutation so that both the hover preview and the actual click use the same
 // geometric decision.
 struct TrimAction {
-    enum class Kind { None, FullDelete, Line, Circle, Arc };
+    enum class Kind { None, FullDelete, Line, Circle, Arc, Spline };
 
     Kind kind = Kind::None;
     int targetId = -1;
+
+    // Trimming one edge of a polygon: the polygon is dissolved into its plain
+    // lines first (targetId is then that edge's line). -1 otherwise.
+    int explodePolygonId = -1;
 
     // Line
     glm::vec2 lineP1{0}, lineP2{0};
@@ -3356,8 +3551,182 @@ struct TrimAction {
     int arcKillIndex = -1;
     std::vector<float> arcBounds; // CCW distances from arcStartA: [0, d1, ..., totalArc]
 
+    // Spline: each surviving piece is a run of control points. id >= 0 is an
+    // existing sketch point (kept so constraints on it survive); -1 is a new
+    // cut point to be created at `pos` (or welded to what is already there).
+    struct SplineCtrl { int id = -1; glm::vec2 pos{0}; };
+    std::vector<std::vector<SplineCtrl>> splinePieces;
+    std::vector<glm::vec2> splineKillPoly; // the stretch being removed (preview)
+
     bool valid() const { return kind != Kind::None; }
 };
+
+// Cut a line at everything crossing it and pick the stretch under `pos`.
+// False when there is nothing to cut at (the caller deletes the whole thing).
+bool planLineTrim(const Sketch& sketch, const SketchLine& line, glm::vec2 pos,
+                  float threshold, TrimAction& action) {
+    const SketchPoint* a = sketch.getPoint(line.startPointId);
+    const SketchPoint* b = sketch.getPoint(line.endPointId);
+    if (!a || !b) return false;
+    action.lineP1 = a->pos;
+    action.lineP2 = b->pos;
+
+    std::vector<Hit> hits;
+    collectLineIntersections(sketch, line, threshold, hits);
+    if (hits.empty()) return false;
+
+    std::sort(hits.begin(), hits.end(),
+              [](const Hit& x, const Hit& y) { return x.param < y.param; });
+    std::vector<Hit> uniq;
+    for (const auto& h : hits) {
+        if (uniq.empty() || std::abs(h.param - uniq.back().param) > 1e-3f) uniq.push_back(h);
+    }
+
+    std::vector<float> bounds;
+    bounds.push_back(0.0f);
+    for (const auto& h : uniq) {
+        if (h.param > 1e-3f && h.param < 1.0f - 1e-3f) bounds.push_back(h.param);
+    }
+    bounds.push_back(1.0f);
+    if (bounds.size() <= 2) return false;
+
+    float tClick;
+    distSqPointSegment(pos, action.lineP1, action.lineP2, &tClick);
+
+    int killIndex = -1;
+    for (int i = 0; i + 1 < static_cast<int>(bounds.size()); ++i) {
+        if (tClick >= bounds[i] - 1e-3f && tClick <= bounds[i + 1] + 1e-3f) {
+            killIndex = i; break;
+        }
+    }
+    if (killIndex < 0) return false;
+
+    action.kind = TrimAction::Kind::Line;
+    action.lineBounds = std::move(bounds);
+    action.lineKillIndex = killIndex;
+    return true;
+}
+
+// Cut a spline at everything crossing it and remove the stretch under `pos`.
+// What is left of it becomes one or two new splines through the same control
+// points, ending exactly on the cut. False when nothing crosses it (the caller
+// deletes it whole).
+//
+// A spline through control points is rebuilt from its points, so a survivor
+// is the original curve only to within the curve's own tangent behaviour: its
+// outer control points are unchanged and the cut lies on the old curve, but the
+// last span before a cut is re-fitted rather than clipped.
+bool planSplineTrim(const Sketch& sketch, const SketchSpline& spl, glm::vec2 pos,
+                    float threshold, TrimAction& action) {
+    std::vector<int> cidx, cids;
+    const std::vector<glm::vec2> samp = sketch.sampleSpline2D(spl, kTrimSplineSegs, &cidx, &cids);
+    if (samp.size() < 3 || cids.size() < 2) return false;
+    const bool closed = spl.controlPointIds.size() > 2 &&
+                        spl.controlPointIds.front() == spl.controlPointIds.back();
+    const float maxS = static_cast<float>(samp.size() - 1);
+    const float eps = 0.02f; // sample units; a cut this close to an end is the end
+
+    std::vector<float> raw;
+    collectSplineIntersections(sketch, spl, samp, closed, threshold, raw);
+    std::vector<float> cuts;
+    for (float v : raw) {
+        if (closed) {
+            if (v >= maxS - eps) v = 0.0f; // the seam: same point as sample 0
+            cuts.push_back(v);
+        } else if (v > eps && v < maxS - eps) {
+            cuts.push_back(v);
+        }
+    }
+    std::sort(cuts.begin(), cuts.end());
+    std::vector<float> h;
+    for (float v : cuts) if (h.empty() || v - h.back() > eps) h.push_back(v);
+    if (closed && h.size() > 1 && h.front() + maxS - h.back() <= eps) h.pop_back();
+    const int k = static_cast<int>(h.size());
+    if (closed ? k < 2 : k < 1) return false;
+
+    float sc;
+    polylineNearest(samp, pos, &sc);
+
+    // Stretches [lo,hi] in unwrapped sample coordinates (hi > lo; closed ones
+    // may run past maxS). kill = the one under the cursor.
+    struct Span { float lo, hi; };
+    std::vector<Span> spans;
+    int kill = -1;
+    if (closed) {
+        for (int i = 0; i < k; ++i) {
+            float lo = h[i], hi = h[(i + 1) % k];
+            if (hi <= lo) hi += maxS;
+            spans.push_back({lo, hi});
+            float c = sc < lo ? sc + maxS : sc;
+            if (kill < 0 && c >= lo && c <= hi) kill = i;
+        }
+    } else {
+        std::vector<float> bounds{0.0f};
+        for (float v : h) bounds.push_back(v);
+        bounds.push_back(maxS);
+        for (size_t i = 0; i + 1 < bounds.size(); ++i) {
+            spans.push_back({bounds[i], bounds[i + 1]});
+            if (kill < 0 && sc >= bounds[i] && sc <= bounds[i + 1]) kill = static_cast<int>(i);
+        }
+    }
+    if (kill < 0) return false;
+
+    auto at = [&](float s) {
+        if (closed && s > maxS) s -= maxS;
+        return polylineAt(samp, s);
+    };
+    const int nCtrl = static_cast<int>(closed ? cids.size() - 1 : cids.size());
+
+    // The survivor running from sample coordinate lo to hi: the cut points at
+    // its ends (or the spline's own end points when it runs to one) and every
+    // control point strictly between.
+    auto makePiece = [&](float lo, float hi) {
+        std::vector<TrimAction::SplineCtrl> piece;
+        auto push = [&](int pid, glm::vec2 p) {
+            if (!piece.empty() && glm::length(piece.back().pos - p) < 1e-3f) return;
+            piece.push_back({pid, p});
+        };
+        push(!closed && lo <= 0.0f ? cids.front() : -1, at(lo));
+        for (int m = 0; m < (closed ? 2 : 1); ++m) {
+            for (int c = 0; c < nCtrl; ++c) {
+                float u = static_cast<float>(cidx[c]) + static_cast<float>(m) * maxS;
+                if (u > lo + eps && u < hi - eps) push(cids[c], at(u));
+            }
+        }
+        push(!closed && hi >= maxS ? cids.back() : -1, at(hi));
+        return piece;
+    };
+
+    if (closed) {
+        // Removing one stretch of a loop leaves the rest as one open curve.
+        const Span& ks = spans[kill];
+        float lo = ks.hi, hi = ks.lo + maxS;
+        if (hi > lo) {
+            auto piece = makePiece(lo, hi);
+            if (piece.size() >= 2) action.splinePieces.push_back(std::move(piece));
+        }
+    } else {
+        for (int i = 0; i < static_cast<int>(spans.size()); ++i) {
+            if (i == kill) continue;
+            auto piece = makePiece(spans[i].lo, spans[i].hi);
+            if (piece.size() >= 2) action.splinePieces.push_back(std::move(piece));
+        }
+    }
+
+    // Preview: the stretch that goes.
+    const Span& ks = spans[kill];
+    action.splineKillPoly.push_back(at(ks.lo));
+    for (int m = 0; m < (closed ? 2 : 1); ++m) {
+        for (size_t i = 0; i < samp.size(); ++i) {
+            float u = static_cast<float>(i) + static_cast<float>(m) * maxS;
+            if (u > ks.lo && u < ks.hi) action.splineKillPoly.push_back(samp[i]);
+        }
+    }
+    action.splineKillPoly.push_back(at(ks.hi));
+
+    action.kind = TrimAction::Kind::Spline;
+    return true;
+}
 
 TrimAction planTrim(const Sketch& sketch, glm::vec2 pos, float threshold) {
     TrimAction action;
@@ -3366,8 +3735,43 @@ TrimAction planTrim(const Sketch& sketch, glm::vec2 pos, float threshold) {
     if (id < 0) return action;
     action.targetId = id;
 
-    if (pickType == "spline" || pickType == "polygon") {
+    if (pickType == "spline") {
+        const SketchSpline* spl = nullptr;
+        for (const auto& sp : sketch.getSplines()) if (sp.id == id) { spl = &sp; break; }
+        if (!spl || !planSplineTrim(sketch, *spl, pos, threshold, action))
+            action.kind = TrimAction::Kind::FullDelete;
+        return action;
+    }
+
+    if (pickType == "polygon") {
+        // A polygon's edges are plain lines under the hood. Cut the edge under
+        // the cursor between its crossings like any line, dissolving the
+        // polygon first (apply). An edge nothing crosses has nothing to cut
+        // at, so - as for any uncrossed element - the whole polygon goes.
         action.kind = TrimAction::Kind::FullDelete;
+        const SketchPolygon* poly = nullptr;
+        for (const auto& po : sketch.getPolygons()) if (po.id == id) { poly = &po; break; }
+        if (!poly) return action;
+        const SketchLine* edge = nullptr;
+        float best = std::numeric_limits<float>::max();
+        for (int lid : poly->lineIds) {
+            for (const auto& l : sketch.getLines()) {
+                if (l.id != lid) continue;
+                const SketchPoint* a = sketch.getPoint(l.startPointId);
+                const SketchPoint* b = sketch.getPoint(l.endPointId);
+                if (!a || !b) break;
+                float d = distSqPointSegment(pos, a->pos, b->pos);
+                if (d < best) { best = d; edge = &l; }
+                break;
+            }
+        }
+        if (!edge) return action;
+        TrimAction cut;
+        cut.targetId = edge->id;
+        if (planLineTrim(sketch, *edge, pos, threshold, cut)) {
+            cut.explodePolygonId = poly->id;
+            return cut;
+        }
         return action;
     }
 
@@ -3375,44 +3779,8 @@ TrimAction planTrim(const Sketch& sketch, glm::vec2 pos, float threshold) {
         const SketchLine* line = nullptr;
         for (const auto& l : sketch.getLines()) if (l.id == id) { line = &l; break; }
         if (!line) return action;
-        const SketchPoint* a = sketch.getPoint(line->startPointId);
-        const SketchPoint* b = sketch.getPoint(line->endPointId);
-        if (!a || !b) return action;
-        action.lineP1 = a->pos;
-        action.lineP2 = b->pos;
-
-        std::vector<Hit> hits;
-        collectLineIntersections(sketch, *line, threshold, hits);
-        if (hits.empty()) { action.kind = TrimAction::Kind::FullDelete; return action; }
-
-        std::sort(hits.begin(), hits.end(),
-                  [](const Hit& x, const Hit& y) { return x.param < y.param; });
-        std::vector<Hit> uniq;
-        for (const auto& h : hits) {
-            if (uniq.empty() || std::abs(h.param - uniq.back().param) > 1e-3f) uniq.push_back(h);
-        }
-
-        std::vector<float> bounds;
-        bounds.push_back(0.0f);
-        for (const auto& h : uniq) {
-            if (h.param > 1e-3f && h.param < 1.0f - 1e-3f) bounds.push_back(h.param);
-        }
-        bounds.push_back(1.0f);
-
-        float tClick;
-        distSqPointSegment(pos, action.lineP1, action.lineP2, &tClick);
-
-        int killIndex = -1;
-        for (int i = 0; i + 1 < static_cast<int>(bounds.size()); ++i) {
-            if (tClick >= bounds[i] - 1e-3f && tClick <= bounds[i + 1] + 1e-3f) {
-                killIndex = i; break;
-            }
-        }
-        if (killIndex < 0) { action.kind = TrimAction::Kind::FullDelete; return action; }
-
-        action.kind = TrimAction::Kind::Line;
-        action.lineBounds = std::move(bounds);
-        action.lineKillIndex = killIndex;
+        if (!planLineTrim(sketch, *line, pos, threshold, action))
+            action.kind = TrimAction::Kind::FullDelete;
         return action;
     }
 
@@ -3545,10 +3913,7 @@ void densifyTrimPreview(const Sketch& sketch, const TrimAction& a, std::vector<g
             return;
         }
         for (const auto& spl : sketch.getSplines()) if (spl.id == a.targetId) {
-            for (int pid : spl.controlPointIds) {
-                const SketchPoint* p = sketch.getPoint(pid);
-                if (p) out.push_back(p->pos);
-            }
+            out = sketch.sampleSpline2D(spl, 12);
             return;
         }
         for (const auto& po : sketch.getPolygons()) if (po.id == a.targetId) {
@@ -3564,6 +3929,9 @@ void densifyTrimPreview(const Sketch& sketch, const TrimAction& a, std::vector<g
     switch (a.kind) {
         case TrimAction::Kind::None: return;
         case TrimAction::Kind::FullDelete: return; // handled above
+        case TrimAction::Kind::Spline:
+            out = a.splineKillPoly;
+            return;
         case TrimAction::Kind::Line: {
             float t0 = a.lineBounds[a.lineKillIndex];
             float t1 = a.lineBounds[a.lineKillIndex + 1];
@@ -3620,7 +3988,23 @@ void applyTrim(Sketch& sketch, const TrimAction& a) {
         return;
     }
 
+    if (a.kind == TrimAction::Kind::Spline) {
+        sketch.removeElement(a.targetId);
+        for (const auto& piece : a.splinePieces) {
+            std::vector<int> ids;
+            for (const auto& c : piece) {
+                int pid = (c.id >= 0 && sketch.getPoint(c.id)) ? c.id : findOrAddPoint(sketch, c.pos);
+                if (ids.empty() || ids.back() != pid) ids.push_back(pid);
+            }
+            if (ids.size() >= 2) sketch.addSpline(ids);
+        }
+        return;
+    }
+
     if (a.kind == TrimAction::Kind::Line) {
+        // One edge of a polygon: dissolve the polygon so the edge is a plain
+        // line (removing it would otherwise take the whole polygon with it).
+        if (a.explodePolygonId >= 0) sketch.explodePolygon(a.explodePolygonId);
         sketch.removeElement(a.targetId);
         for (int i = 0; i + 1 < static_cast<int>(a.lineBounds.size()); ++i) {
             if (i == a.lineKillIndex) continue;

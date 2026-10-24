@@ -120,14 +120,22 @@ public:
     // (the same B-spline buildWires() emits, so what you see is what
     // extrudes). Falls back to the raw control polyline if interpolation
     // fails. `segsPerSpan` segments between consecutive control points.
+    //
+    // `ctrlSampleIdx` / `ctrlIds`, when given, report where each control point
+    // sits in the returned polyline (an index) and which sketch point it is.
+    // One entry per control point actually used, closed splines getting a
+    // final entry for the repeat of the first. Trim needs this to turn "cut at
+    // sample 37.4" back into "keep control points 3..5".
     std::vector<glm::vec2> sampleSpline2D(const SketchSpline& sp,
-                                          int segsPerSpan = 12) const;
+                                          int segsPerSpan = 12,
+                                          std::vector<int>* ctrlSampleIdx = nullptr,
+                                          std::vector<int>* ctrlIds = nullptr) const;
     // Interpolate a smooth curve through raw 2D positions (no sketch points
     // needed) - used for the live in-progress spline preview. Falls back to
     // the input polyline on failure.
     static std::vector<glm::vec2> interpolate2D(
         const std::vector<glm::vec2>& ctrl, int segsPerSpan = 12,
-        bool closed = false);
+        bool closed = false, std::vector<int>* spanStartIdx = nullptr);
 
     // The point of `plane` NEAREST `near` whose sketch coordinates are both
     // multiples of `step` - i.e. a point of the snap lattice.
@@ -146,6 +154,10 @@ public:
 
     // Element removal
     void removeElement(int id);
+    // Dissolve a polygon into the plain lines it was made of: the polygon
+    // record goes, its edge lines, vertices and centre point stay. Lets Trim
+    // cut one edge of a polygon like any other line. False if no such polygon.
+    bool explodePolygon(int id);
     // Batch removal: resolves polygon ownership across the WHOLE `ids` list
     // against the sketch's pre-mutation state before deleting anything, so a
     // selection containing more than one piece of the same polygon (two

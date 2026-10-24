@@ -486,6 +486,10 @@ add_executable(test_sketch_trim_polygon test_sketch_trim_polygon.cpp)
 target_link_libraries(test_sketch_trim_polygon PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_sketch_trim_polygon COMMAND test_sketch_trim_polygon)
 
+add_executable(test_sketch_trim_spline test_sketch_trim_spline.cpp)
+target_link_libraries(test_sketch_trim_spline PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_sketch_trim_spline COMMAND test_sketch_trim_spline)
+
 # Select+Delete on a polygon edge/vertex/center cascades the whole polygon,
 # not a partial corruption; Line-tool chain backtracking near a polygon
 # doesn't destroy it either
