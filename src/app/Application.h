@@ -809,6 +809,8 @@ private:
     // sketchBodyLinks() memo - see its declaration. ~0u forces the first build.
     mutable std::map<int, std::set<int>> m_linkMapCache;
     mutable unsigned m_linkMapRevision = ~0u;
+    // History revision the ghost-sketch sync last ran at (syncGhostSketches).
+    unsigned m_ghostSyncRevision = ~0u;
     // Re-establish the parametric link of a detached sketch (Properties-panel
     // "Re-link"): clears the detached flag so editing the sketch drives its body
     // again. isBody=true re-links every detached sketch driving that body.
@@ -1268,6 +1270,8 @@ private:
     float m_lightAmbient = 0.40f;   // base illumination; higher = softer shadows
     bool  m_lightHeadlight = false; // key light tracks the camera
     bool  m_lightFill = true;       // soft opposing fill light
+    // Glide to a sketch plane instead of cutting to it (Settings > Navigation).
+    bool  m_animateCamera = true;
     bool  m_photoReflections = true; // metals reflect a photographed studio
     int   m_msaaSamples = 4;        // viewport anti-aliasing: 0=off, 2, 4, 8
     int   m_meshQuality = 1;        // tessellation density: 0=Low..3=Ultra

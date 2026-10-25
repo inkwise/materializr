@@ -261,7 +261,7 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 
 - CONVERTED: 1
 - allowed-by-hand: 92
-- comment: 294
+- comment: 296
 - diagnostic: 12
 - identifier/other: 9
 
@@ -554,6 +554,8 @@ classifier is heuristic; rows it cannot decide are pinned in the script's OVERRI
 | comment | src/modeling/SketchConstraints.h | `// dimension label rather than clicking it. Pixels rather than sketch mm because` |
 | comment | src/modeling/SketchOffset.cpp | `// comfortably more than 1e-3 mm - so an analytic epsilon condemns perfectly` |
 | comment | src/modeling/SketchOffset.cpp | `// accept the (sub-0.1 mm) deviation that comes with it.` |
+| comment | src/modeling/SketchTool.cpp | `// circle centred on a grid node (a 3 mm circle on a 1 mm grid) landed half` |
+| comment | src/modeling/SketchTool.cpp | `// a grid step off the rim, right on the 0.5 mm pick tolerance, and the` |
 | comment | src/modeling/SketchTool.cpp | `// Popup asks for DIAMETER (matching the on-canvas "X.X mm dia"` |
 | comment | src/modeling/SketchTool.cpp | `// comes out NEARLY axis-aligned, "nearly" is the bug: 1° over 80 mm is` |
 | comment | src/modeling/SketchTool.cpp | `// 4° rule. (Steve: a 1 mm rise over a long run must not snap to horizontal.)` |

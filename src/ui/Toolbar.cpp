@@ -1,6 +1,7 @@
 #include "UiTheme.h"
 #include "Toolbar.h"
 #include "TouchIcons.h"
+#include "PolygonSidesMenu.h"
 #include "../core/SelectionManager.h"
 #include "../core/History.h"
 #include "../core/Operation.h"
@@ -758,15 +759,11 @@ ToolAction Toolbar::renderSketchTools() {
         if (active) { ImGui::PopStyleColor(); ImGui::PopStyleVar(); }
         tip(materializr::tr("Regular polygon: pick the number of sides, then click the centre and drag for size / rotation."));
         if (ImGui::BeginPopup("PolygonSidesMenu")) {
-            struct PolyChoice { const char* name; int sides; };
-            static const PolyChoice choices[] = {
-                {"Triangle (3)", 3}, {"Square (4)", 4}, {"Pentagon (5)", 5},
-                {"Hexagon (6)", 6}, {"Heptagon (7)", 7}, {"Octagon (8)", 8}};
-            for (const auto& ch : choices)
-                if (ImGui::MenuItem(ch.name)) {
-                    m_requestedPolygonSides = ch.sides;
-                    action = ToolAction::Polygon;
-                }
+            if (int sides = polygonSidesMenuItems(); sides >= 3) {
+                m_requestedPolygonSides = sides;
+                action = ToolAction::Polygon;
+                ImGui::CloseCurrentPopup();
+            }
             ImGui::EndPopup();
         }
     }

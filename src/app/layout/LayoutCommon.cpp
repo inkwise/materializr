@@ -26,6 +26,7 @@
 #include "ui/LogoTexture.h"
 #include "ui/ShortcutsPanel.h"
 #include "ui/ThemeManager.h"
+#include "ui/PolygonSidesMenu.h"
 #include "ui/Toolbar.h"
 #include "ui/TouchIcons.h"
 #include "ui/UiTheme.h"   // accentText for the touch tabs sheet heading
@@ -736,15 +737,11 @@ void Application::renderRailPolygonSidesPopup(bool clicked) {
     // rail-button result; the popup body renders every frame while open.
     if (clicked) ImGui::OpenPopup("##railPolySides");
     if (ImGui::BeginPopup("##railPolySides")) {
-        struct PolyChoice { const char* name; int sides; };
-        static const PolyChoice choices[] = {
-            {"Triangle (3)", 3}, {"Square (4)", 4}, {"Pentagon (5)", 5},
-            {"Hexagon (6)", 6}, {"Heptagon (7)", 7}, {"Octagon (8)", 8}};
-        for (const auto& c : choices)
-            if (ImGui::MenuItem(c.name)) {
-                m_toolbar->setRequestedPolygonSides(c.sides);
-                handleToolAction(static_cast<int>(ToolAction::Polygon));
-            }
+        if (int sides = polygonSidesMenuItems(); sides >= 3) {
+            m_toolbar->setRequestedPolygonSides(sides);
+            handleToolAction(static_cast<int>(ToolAction::Polygon));
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::EndPopup();
     }
 }

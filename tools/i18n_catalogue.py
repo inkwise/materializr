@@ -164,6 +164,15 @@ CAT = [
     E("Hexagon (6)",        "Hexágono (6)","Hexágono (6)","Hexagone (6)","Sechseck (6)","Esagono (6)"),
     E("Heptagon (7)",       "Heptágono (7)","Heptágono (7)","Heptagone (7)","Siebeneck (7)","Ettagono (7)"),
     E("Octagon (8)",        "Octágono (8)","Octógono (8)","Octogone (8)","Achteck (8)","Ottagono (8)"),
+    E("Custom...",          "Personalizado...","Personalizado...","Personnalisé...","Benutzerdefiniert...","Personalizzato..."),
+    E("Draw",               "Dibujar","Desenhar","Dessiner","Zeichnen","Disegna"),
+    E("Animate camera moves", "Animar los movimientos de cámara","Animar os movimentos da câmera","Animer les déplacements de la caméra","Kamerabewegungen animieren","Anima i movimenti della camera"),
+    E("Glide to the sketch plane so you can follow where the view went. Off: cut straight to it.",
+      "Se desliza hasta el plano del boceto para que puedas seguir adónde fue la vista. Desactivado: salta directamente.",
+      "Desliza até o plano do esboço para que você acompanhe para onde a vista foi. Desligado: vai direto.",
+      "Glisse vers le plan de l'esquisse pour suivre où est allée la vue. Désactivé : saute directement.",
+      "Gleitet zur Skizzenebene, damit du verfolgen kannst, wohin die Ansicht gewandert ist. Aus: springt direkt dorthin.",
+      "Scorre fino al piano dello schizzo così puoi seguire dove è andata la vista. Disattivato: salta direttamente."),
 
     # ---- Sketch dimension input (incl. the arc work from today) ------------
     E("Length (%s)",        "Longitud (%s)","Comprimento (%s)","Longueur (%s)","Länge (%s)","Lunghezza (%s)"),

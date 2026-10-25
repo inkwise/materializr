@@ -218,6 +218,14 @@ public:
     // region store the point next to the index and resolve through this first.
     int regionAtAnchor(const std::vector<Region>& regions, glm::vec2 anchor) const;
 
+    // Indices into `regions` (this sketch's buildRegions()) of the regions the
+    // user actually DREW: those inside at least one of the sketch's own closed
+    // loops. A sketch started on a body face also carries the leftover of that
+    // host face (everything outside the drawn shapes) as a selectable region -
+    // handy for a deliberate click, wrong for "act on the whole sketch", which
+    // would otherwise take the entire face along with the drawn circle.
+    std::vector<int> drawnRegions(const std::vector<Region>& regions) const;
+
     // True when buildRegions() would be a cache HIT (valid cache + current
     // geometry hash). Lets the per-frame hover pick skip sketches whose
     // regions would need the heavy OCCT fuse - a freshly-unhidden complex

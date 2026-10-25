@@ -515,6 +515,11 @@ void Application::renderSettings() {
                     }
                     ImGui::TextWrapped("%s", materializr::tr("On: orbiting is a level turntable. Off: free trackball that can tumble in any direction."));
 
+                    if (ImGui::Checkbox(materializr::tr("Animate camera moves"), &m_animateCamera)) {
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("%s", materializr::tr("Glide to the sketch plane so you can follow where the view went. Off: cut straight to it."));
+
                     // Invert the cube-drag → orbit direction.
                     if (ImGui::Checkbox(materializr::tr("Invert ViewCube drag direction"), &m_invertCubeDrag)) {
                         changed = true;

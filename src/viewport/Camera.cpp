@@ -104,6 +104,7 @@ void Camera::orbitLevel(float yawDelta, float pitchDelta)
 
 void Camera::orbit(float deltaX, float deltaY)
 {
+    finishAnimation();
     const float s = m_orbitSpeed * m_mouseSensitivity;
     if (m_levelOrbit) {
         orbitLevel(deltaX * s, deltaY * s);
@@ -116,6 +117,7 @@ void Camera::orbit(float deltaX, float deltaY)
 
 void Camera::rotateAroundTarget(float yawRadians, float pitchRadians)
 {
+    finishAnimation();
     if (m_levelOrbit) {
         orbitLevel(yawRadians, pitchRadians);
     } else {
@@ -126,6 +128,7 @@ void Camera::rotateAroundTarget(float yawRadians, float pitchRadians)
 
 void Camera::pan(float deltaX, float deltaY)
 {
+    finishAnimation();
     glm::vec3 forward = glm::normalize(m_target - m_position);
     glm::vec3 right = glm::normalize(glm::cross(forward, m_up));
     glm::vec3 up = glm::normalize(glm::cross(right, forward));
@@ -168,6 +171,7 @@ void Camera::pan(float deltaX, float deltaY)
 
 void Camera::zoom(float delta)
 {
+    finishAnimation();
     const float s = m_zoomSpeed * m_mouseSensitivity;
     if (m_orthographic) {
         // In ortho, "zoom" scales the visible extents rather than moving the camera.
@@ -193,6 +197,7 @@ void Camera::zoom(float delta)
 
 void Camera::zoomToward(const glm::vec3& focus, float delta)
 {
+    finishAnimation();
     // Scale-around-focus formulation: a single uniform factor scales both the
     // camera→focus and target→focus vectors. The focus point stays put on
     // screen, position and target both slide toward (or away from) it, and
@@ -249,6 +254,7 @@ void Camera::setAspect(float aspect)
 
 void Camera::reset()
 {
+    finishAnimation();
     m_position = glm::vec3(5.0f, 5.0f, 5.0f);
     m_target = glm::vec3(0.0f, 0.0f, 0.0f);
     m_up = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -258,6 +264,7 @@ void Camera::reset()
 
 void Camera::zoomToFit(glm::vec3 min, glm::vec3 max)
 {
+    finishAnimation();
     glm::vec3 center = (min + max) * 0.5f;
     glm::vec3 extents = max - min;
     float radius = glm::length(extents) * 0.5f;
@@ -285,17 +292,154 @@ void Camera::zoomToFit(glm::vec3 min, glm::vec3 max)
 
 void Camera::setPosition(glm::vec3 pos)
 {
+    finishAnimation();
     m_position = pos;
 }
 
 void Camera::setTarget(glm::vec3 target)
 {
+    finishAnimation();
     m_target = target;
 }
 
 void Camera::setUp(glm::vec3 up)
 {
+    finishAnimation();
     m_up = up;
+}
+
+
+// ---------------------------------------------------------------------------
+// Animated view changes (see Camera.h)
+
+namespace {
+
+// Distance at which a perspective camera sees a half-height of `orthoSize`:
+// the perspective view that frames a flat subject exactly like the ortho box.
+float equivalentDistance(float orthoSize, float fovDegrees)
+{
+    const float halfFov = glm::radians(fovDegrees) * 0.5f;
+    return std::max(orthoSize / std::tan(halfFov), 1e-3f);
+}
+
+glm::vec3 safeDirection(const glm::vec3& from, const glm::vec3& to, const glm::vec3& fallback)
+{
+    const glm::vec3 d = from - to;
+    const float len = glm::length(d);
+    return len > 1e-6f ? d / len : fallback;
+}
+
+// Smootherstep: zero velocity and acceleration at both ends, so the move eases
+// out of the old view and settles into the new one.
+float ease(float t)
+{
+    t = std::clamp(t, 0.0f, 1.0f);
+    return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
+
+} // namespace
+
+void Camera::animateTo(glm::vec3 position, glm::vec3 target, glm::vec3 up,
+                       bool orthographic, float orthoSize, float seconds)
+{
+    finishAnimation();   // settle any move in flight; start from where we truly are
+
+    const glm::vec3 fallbackDir(0.0f, 0.0f, 1.0f);
+    const glm::vec3 dir1 = safeDirection(position, target, fallbackDir);
+    if (seconds <= 0.0f || glm::length(position - target) < 1e-6f) {
+        m_position = position;
+        m_target = target;
+        m_up = up;
+        m_orthographic = orthographic;
+        if (orthographic) m_orthoSize = orthoSize;
+        return;
+    }
+
+    Animation a;
+    a.duration = seconds;
+    a.t0 = m_target;
+    a.u0 = m_up;
+    const glm::vec3 dir0 = safeDirection(m_position, m_target, fallbackDir);
+    const float d0 = m_orthographic ? equivalentDistance(m_orthoSize, m_fov)
+                                    : std::max(glm::length(m_position - m_target), 1e-3f);
+    a.p0 = m_target + dir0 * d0;
+
+    a.t1 = target;
+    a.u1 = up;
+    const float d1 = orthographic ? equivalentDistance(orthoSize, m_fov)
+                                  : std::max(glm::length(position - target), 1e-3f);
+    a.p1 = target + dir1 * d1;
+    a.endPos = position;
+    a.endOrtho = orthographic;
+    a.endOrthoSize = orthoSize;
+    a.active = true;
+
+    // Start from the perspective-equivalent of the current view: from an
+    // orthographic one this is the same picture, so there is nothing to jump.
+    m_orthographic = false;
+    m_position = a.p0;
+    m_anim = a;
+}
+
+bool Camera::tick(float dtSeconds)
+{
+    if (!m_anim.active) return false;
+    Animation& a = m_anim;
+    a.t += dtSeconds / std::max(a.duration, 1e-3f);
+    if (a.t >= 1.0f) {
+        finishAnimation();
+        return true;   // the last step changed the view too
+    }
+    const float e = ease(a.t);
+
+    // View direction: slerp. Opposite directions have no unique arc; pick any
+    // axis perpendicular to the start so the camera swings around, not through.
+    const glm::vec3 da = glm::normalize(a.p0 - a.t0);
+    const glm::vec3 db = glm::normalize(a.p1 - a.t1);
+    const float c = std::clamp(glm::dot(da, db), -1.0f, 1.0f);
+    glm::vec3 dir;
+    if (c > 0.9999f) {
+        dir = glm::normalize(glm::mix(da, db, e));
+    } else if (c < -0.9999f) {
+        glm::vec3 axis = glm::cross(da, std::abs(da.y) < 0.9f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0));
+        axis = glm::normalize(axis);
+        const float ang = 3.14159265f * e;
+        dir = da * std::cos(ang) + glm::cross(axis, da) * std::sin(ang);
+    } else {
+        const float th = std::acos(c);
+        dir = (std::sin((1.0f - e) * th) * da + std::sin(e * th) * db) / std::sin(th);
+    }
+    dir = glm::normalize(dir);
+
+    // Distance eases geometrically: a zoom looks even, not rushed at the end.
+    const float dist0 = glm::length(a.p0 - a.t0);
+    const float dist1 = glm::length(a.p1 - a.t1);
+    const float dist = std::exp(glm::mix(std::log(dist0), std::log(dist1), e));
+
+    m_target = glm::mix(a.t0, a.t1, e);
+    m_position = m_target + dir * dist;
+
+    // Up: blend, then make it perpendicular to the view so it never skews.
+    glm::vec3 u = glm::mix(a.u0, a.u1, e);
+    u -= dir * glm::dot(u, dir);
+    if (glm::length(u) < 1e-4f) {
+        u = a.u1 - dir * glm::dot(a.u1, dir);
+        if (glm::length(u) < 1e-4f) u = m_up;
+    }
+    m_up = glm::normalize(u);
+    return true;
+}
+
+void Camera::finishAnimation()
+{
+    if (!m_anim.active) return;
+    const Animation a = m_anim;
+    m_anim.active = false;
+    m_position = a.endPos;
+    m_target = a.t1;
+    m_up = a.u1;
+    m_orthographic = a.endOrtho;
+    if (a.endOrtho) m_orthoSize = a.endOrthoSize;
 }
 
 } // namespace materializr

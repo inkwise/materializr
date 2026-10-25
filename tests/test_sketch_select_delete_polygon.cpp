@@ -34,8 +34,9 @@ namespace {
 constexpr float kStep = 1.0f;
 constexpr float kTol = 1e-4f;
 
-// handleSelectTool snaps the click position first (unlike Trim, which uses
-// the raw cursor), so every polygon here uses sides=4, rotation=0, radius=10:
+// (handleSelectTool used to snap the click position first; it now picks from
+// the raw cursor like Trim. These polygons were built for the snapping era,)
+// so every polygon here uses sides=4, rotation=0, radius=10:
 // vertices land at (+-10,0),(0,+-10), edge midpoints at (+-5,+-5), center at
 // (0,0) - all already on the 1.0 lattice, so snap() can't move a click off
 // target regardless of tolerance/threshold tuning elsewhere.
@@ -453,4 +454,67 @@ TEST(SketchSelectDeletePolygon, LineChainSegmentIdsStaySyncedAcrossRepeatedBackt
     EXPECT_FALSE(lineWithEndpointsExists(sk, {100.0f, 100.0f}, {110.0f, 100.0f}));
     EXPECT_TRUE(lineWithEndpointsExists(sk, {10.0f, 0.0f}, {20.0f, 0.0f}));
     EXPECT_TRUE(lineWithEndpointsExists(sk, {0.0f, 0.0f}, {10.0f, 0.0f}));
+}
+
+
+// ---------------------------------------------------------------------------
+// Picking is done from the RAW cursor, not the snapped one.
+//
+// A 3 mm circle centred on a grid node, a 1 mm grid, drawing aids OFF (grid
+// snap only): clicking its rim at 1.5 mm from the centre used to snap half a
+// grid step off the rim and miss the 0.5 mm tolerance, so the circle could not
+// be selected.
+namespace {
+struct RimFixture {
+    Sketch sk;
+    SketchSolver solver;
+    int circleId = -1;
+    RimFixture() {
+        const int c = sk.addPoint({0.0f, 15.0f});
+        circleId = sk.addCircle(c, 1.5);
+    }
+    SketchTool tool(SketchTool::InferenceLevel level) {
+        SketchTool t;
+        t.setSketch(&sk);
+        t.setSolver(&solver);
+        t.setGridStep(kStep);
+        t.setSnapToGridEnabled(true);
+        t.setInferenceLevel(level);
+        t.setMode(SketchToolMode::Select);
+        return t;
+    }
+};
+}
+
+TEST(SelectPicksFromTheRawCursor, RimOfAGridCenteredCircleSelectsWithAidsOff) {
+    // The four rim points sit exactly halfway between grid nodes.
+    const glm::vec2 rim[] = {{1.5f, 15.0f}, {-1.5f, 15.0f}, {0.0f, 16.5f}, {0.0f, 13.5f}};
+    for (const glm::vec2& p : rim) {
+        RimFixture f;
+        SketchTool t = f.tool(SketchTool::InferenceLevel::Off);
+        t.onMouseDown(p, false);
+        EXPECT_EQ(t.getSelectedCircles().count(f.circleId), 1u)
+            << "rim click at (" << p.x << "," << p.y << ")";
+    }
+}
+
+TEST(SelectPicksFromTheRawCursor, SameClickSelectsWithAidsOn) {
+    RimFixture f;
+    SketchTool t = f.tool(SketchTool::InferenceLevel::Full);
+    t.onMouseDown({1.5f, 15.0f}, false);
+    EXPECT_EQ(t.getSelectedCircles().count(f.circleId), 1u);
+}
+
+TEST(SelectPicksFromTheRawCursor, AClickWellOffTheRimStillSelectsNothing) {
+    RimFixture f;
+    SketchTool t = f.tool(SketchTool::InferenceLevel::Off);
+    t.onMouseDown({1.5f + 1.2f, 15.0f}, false);   // 1.2 mm outside the rim
+    EXPECT_TRUE(t.getSelectedCircles().empty());
+}
+
+TEST(SelectPicksFromTheRawCursor, ACenterPointStillSelectsWithAidsOff) {
+    RimFixture f;
+    SketchTool t = f.tool(SketchTool::InferenceLevel::Off);
+    t.onMouseDown({0.1f, 15.1f}, false);          // a hair off the centre point
+    EXPECT_EQ(t.getSelectedPoints().size(), 1u);
 }

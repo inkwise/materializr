@@ -70,10 +70,15 @@ void SketchTool::onMouseDown(glm::vec2 pos, bool addToSel) {
     m_charged = {};
     m_hoverCandidate = {};
 
-    // Trim (and Dimension) pick by proximity to existing geometry; snapping
-    // the cursor first would pull the click toward unrelated nearby
-    // points/edges and pick wrong.
-    glm::vec2 snapped = (m_mode == SketchToolMode::Trim || m_mode == SketchToolMode::Dimension)
+    // Trim, Dimension and Select pick by proximity to existing geometry;
+    // snapping the cursor first would pull the click toward unrelated nearby
+    // points/edges and pick wrong. For Select that was a real miss: with the
+    // drawing aids Off only the grid snap is left, so a click on the rim of a
+    // circle centred on a grid node (a 3 mm circle on a 1 mm grid) landed half
+    // a grid step off the rim, right on the 0.5 mm pick tolerance, and the
+    // circle would not select. With aids on the rim snap hid it.
+    glm::vec2 snapped = (m_mode == SketchToolMode::Trim || m_mode == SketchToolMode::Dimension ||
+                         m_mode == SketchToolMode::Select)
                              ? pos
                              : snap(pos);
 

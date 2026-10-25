@@ -314,8 +314,26 @@ bool Document::isSketchVisible(int id) const {
 std::vector<int> Document::getAllSketchIds() const {
     std::vector<int> ids;
     ids.reserve(m_sketches.size());
+    for (const auto& s : m_sketches)
+        if (!s.ghost) ids.push_back(s.id);
+    return ids;
+}
+
+std::vector<int> Document::getAllSketchIdsIncludingGhosts() const {
+    std::vector<int> ids;
+    ids.reserve(m_sketches.size());
     for (const auto& s : m_sketches) ids.push_back(s.id);
     return ids;
+}
+
+void Document::setSketchGhost(int id, bool ghost) {
+    int idx = findSketchIndex(id);
+    if (idx >= 0) m_sketches[idx].ghost = ghost;
+}
+
+bool Document::isSketchGhost(int id) const {
+    int idx = findSketchIndex(id);
+    return idx >= 0 && m_sketches[idx].ghost;
 }
 
 int Document::sketchCount() const {

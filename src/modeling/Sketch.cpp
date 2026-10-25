@@ -2343,6 +2343,26 @@ std::vector<Sketch::Region> Sketch::buildRegionsUncached(
     return regions;
 }
 
+std::vector<int> Sketch::drawnRegions(const std::vector<Region>& regions) const {
+    std::vector<int> out;
+    if (regions.empty()) return out;
+    std::vector<std::vector<glm::vec2>> loops;
+    for (const auto& w : buildWires()) {
+        std::vector<glm::vec2> poly;
+        densifyWire2D(w, m_plane, poly);
+        if (poly.size() >= 3) loops.push_back(std::move(poly));
+    }
+    for (int i = 0; i < static_cast<int>(regions.size()); ++i) {
+        for (const auto& poly : loops) {
+            if (pointInPolygon2D(poly, regions[i].representativePoint)) {
+                out.push_back(i);
+                break;
+            }
+        }
+    }
+    return out;
+}
+
 bool Sketch::isPointInRegion(const Region& region, glm::vec2 p) const {
     std::vector<glm::vec2> outerPoly;
     densifyWire2D(region.outerWire, m_plane, outerPoly);

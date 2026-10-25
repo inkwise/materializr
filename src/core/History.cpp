@@ -302,7 +302,7 @@ bool History::editStep(int index, Document& doc, bool transactional) {
     std::map<int, materializr::Sketch> sketchSnap;
     if (transactional) {
         for (int id : doc.getAllBodyIds()) bodySnap[id] = doc.getBody(id);
-        for (int sid : doc.getAllSketchIds())
+        for (int sid : doc.getAllSketchIdsIncludingGhosts())
             if (auto sk = doc.getSketch(sid)) sketchSnap.emplace(sid, *sk);
         // Op-internal edit state too: ops that SUCCEED during a replay that
         // later fails have re-resolved their stored edges/refs against bodies

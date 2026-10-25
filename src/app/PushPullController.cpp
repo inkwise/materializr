@@ -181,7 +181,10 @@ int PushPullController::onBegin(const IopContext& ctx) {
             auto sketch = ctx.doc.getSketch(e.sketchId);
             if (!sketch) continue;
             auto regions = sketch->buildRegions();
-            for (int ri = 0; ri < static_cast<int>(regions.size()); ++ri) {
+            // Only what was drawn: the host face's leftover area is a region
+            // too (so a click can pick it), but pushing it would cut or raise
+            // the whole face around the drawn shapes.
+            for (int ri : sketch->drawnRegions(regions)) {
                 if (regions[ri].face.IsNull()) continue;
                 PushPullState::Target t;
                 t.sketchId = e.sketchId;

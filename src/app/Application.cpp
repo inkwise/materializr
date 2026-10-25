@@ -2015,6 +2015,7 @@ AppSettings Application::currentSettings() const {
     s.orbitButton = m_orbitButton;
     s.panButton = m_panButton;
     s.levelOrbit = m_viewport->getCamera().isLevelOrbit();
+    s.animateCamera = m_animateCamera;
     s.mouseSensitivity = m_viewport->getCamera().getMouseSensitivity();
     s.autosaveEnabled = m_autosaveEnabled;
     s.invertCubeDrag = m_invertCubeDrag;
@@ -2125,6 +2126,7 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_settingsOrbitButton = s.orbitButton;
     m_settingsPanButton = s.panButton;
     m_viewport->getCamera().setLevelOrbit(s.levelOrbit);
+    m_animateCamera = s.animateCamera;
     m_viewport->getCamera().setMouseSensitivity(s.mouseSensitivity);
     m_autosaveEnabled = s.autosaveEnabled;
     m_invertCubeDrag = s.invertCubeDrag;
@@ -6927,11 +6929,18 @@ void Application::sketchChainCancel() {
 
 void Application::deleteSelectedSketchElements() {
     if (!m_inSketchMode || !m_activeSketch || !m_sketchTool) return;
-    // Delete the SketchTool's element selection (points + lines) if any,
-    // wrapped in recordSketchMutation so Ctrl+Z / Undo brings them back.
+    // Delete the SketchTool's element selection (points, lines, circles, arcs,
+    // splines) if any, wrapped in recordSketchMutation so Ctrl+Z / Undo brings
+    // them back. Clicking a circle/arc rim selects the curve itself, not its
+    // centre point, so the curve ids have to be in the batch too.
     const auto pts = m_sketchTool->getSelectedPoints();
     const auto lns = m_sketchTool->getSelectedLines();
-    if (pts.empty() && lns.empty()) return;
+    const auto crc = m_sketchTool->getSelectedCircles();
+    const auto arcs = m_sketchTool->getSelectedArcs();
+    const auto spl = m_sketchTool->getSelectedSplines();
+    if (pts.empty() && lns.empty() && crc.empty() && arcs.empty() && spl.empty())
+        return;
+    const unsigned revBefore = m_history ? m_history->revision() : 0u;
     recordSketchMutation([&]{
         // One combined-batch call, not separate per-category loops:
         // removeElements resolves polygon ownership across the WHOLE
@@ -6942,6 +6951,9 @@ void Application::deleteSelectedSketchElements() {
         // that polygon away.
         std::vector<int> ids(pts.begin(), pts.end());
         ids.insert(ids.end(), lns.begin(), lns.end());
+        ids.insert(ids.end(), crc.begin(), crc.end());
+        ids.insert(ids.end(), arcs.begin(), arcs.end());
+        ids.insert(ids.end(), spl.begin(), spl.end());
         m_activeSketch->removeElements(ids);
         // Deleting a line leaves its two endpoints behind (they weren't in
         // the selection) - sweep up the now-unreferenced points so no orphan
@@ -6949,6 +6961,12 @@ void Application::deleteSelectedSketchElements() {
         m_activeSketch->pruneOrphanPoints();
     });
     m_sketchTool->clearElementSelection();
+    // Deleting geometry is an edit like a drag or a dimension change: a body
+    // built from this sketch (extrude, push/pull, lathe) has to follow it. Only
+    // when the delete actually recorded a step.
+    if (m_eventBus && m_activeSketchId >= 0 && m_history &&
+        m_history->revision() != revBefore)
+        m_eventBus->publish(SketchEditedEvent{m_activeSketchId});
     markDirty();
 }
 
@@ -7289,6 +7307,11 @@ void Application::alignCameraToActiveSketch() {
         } catch (...) {}
     }
 
+    if (m_animateCamera) {
+        cam.animateTo(lookAt + standDir * standoff, lookAt, chosenUp,
+                      /*orthographic=*/true, orthoSize, 0.35f);
+        return;
+    }
     cam.setTarget(lookAt);
     cam.setPosition(lookAt + standDir * standoff);
     cam.setUp(chosenUp);
@@ -7874,6 +7897,8 @@ void Application::run() {
             // extension tool that may animate on its own.
             if (!m_deferredHeavy.empty() || m_showUpdatePopup || !m_toastText.empty())
                 return true;
+            if (m_viewport && m_viewport->getCamera().isAnimating())
+                return true;                         // camera glide needs its frames
             if (!m_threadRecuts.empty()) return true; // async re-cut in flight
             if (m_meshDispatch.anyPending()) return true; // off-thread mesh in flight: land it when it finishes
             for (auto* c : m_iops)
@@ -8703,6 +8728,15 @@ void Application::run() {
             if (!m_pendingProjectRecovery) renderSketchRecoveryPrompt();
 
             handleShortcuts();
+            // A sketch emptied by an undo hides until a redo refills it, and
+            // is dropped once that redo chain is gone. Not mid-sketch-edit.
+            if (m_history && m_document && !m_inSketchMode &&
+                m_ghostSyncRevision != m_history->revision()) {
+                m_ghostSyncRevision = m_history->revision();
+                if (materializr::syncGhostSketches(*m_history, *m_document,
+                                                   m_activeSketchId))
+                    markDirty();
+            }
         }
 
         if (frameTouchTheme) touchui::popChrome();

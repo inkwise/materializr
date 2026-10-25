@@ -23,6 +23,7 @@
 #include "modeling/SketchEditOp.h"
 #include "modeling/SketchTool.h"
 #include "modeling/ExtrudeOp.h"
+#include "modeling/RevolveOp.h"
 #include "modeling/PushPullOp.h"
 #include "modeling/MoveFaceOp.h"
 #include "modeling/MoveHoleOp.h"
@@ -1098,8 +1099,9 @@ void Application::commitLoft() {
 // addOrPutBody under the hood, so the resulting body keeps the same id and
 // the user sees its shape morph in place.
 //
-// We deliberately stop at Extrude. Downstream ops (Fillet, Chamfer, Pattern,
-// Mirror, Push/Pull) reference faces / edges of the extruded body - when
+// Extrude, Push/Pull and Lathe steps are the ones re-derived from their sketch
+// (rederiveSketchDrivenOps). Downstream ops (Fillet, Chamfer, Pattern,
+// Mirror) reference faces / edges of the extruded body - when
 // the body's topology shifts, those references go stale (the toponaming
 // problem). Re-running them blindly would produce wrong-edge fillets or
 // outright crashes. For the user's "edit a dimension and watch the prism
@@ -1126,6 +1128,8 @@ const std::map<int, std::set<int>>& Application::sketchBodyLinks() const {
         } else if (auto* pp = dynamic_cast<const PushPullOp*>(op)) {
             for (int t = 0; t < pp->targetCount(); ++t)
                 if (pp->getSketchIdAt(t) >= 0) srcSketches.insert(pp->getSketchIdAt(t));
+        } else if (auto* rv = dynamic_cast<const RevolveOp*>(op)) {
+            if (rv->getSketchId() >= 0) srcSketches.insert(rv->getSketchId());
         }
         if (srcSketches.empty()) continue;
         // Bodies this step touched = created + modified.

@@ -1,5 +1,6 @@
 #include "gl_common.h"
 #include "EdgeRenderer.h"
+#include "../modeling/SeamEdges.h"
 
 #include <glm/gtc/type_ptr.hpp>
 
@@ -106,12 +107,16 @@ int EdgeRenderer::addShape(const TopoDS_Shape& shape, float deflection) {
     if (shape.IsNull()) return -1;
 
     std::vector<float> vertices;
+    const auto edgeFaces = materializr::edgeFaceMap(shape);
 
     for (TopExp_Explorer explorer(shape, TopAbs_EDGE); explorer.More(); explorer.Next()) {
         const TopoDS_Edge& edge = TopoDS::Edge(explorer.Current());
 
         // Skip degenerated edges
         if (BRep_Tool::Degenerated(edge)) continue;
+        // And seams: the line a round face is stitched shut along is not a
+        // feature of the part.
+        if (materializr::isSeamEdge(edge, edgeFaces)) continue;
 
         try {
             BRepAdaptor_Curve curve(edge);

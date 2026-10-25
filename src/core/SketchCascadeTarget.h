@@ -4,9 +4,12 @@
 #include "History.h"
 #include "../modeling/ExtrudeOp.h"
 #include "../modeling/PushPullOp.h"
+#include "../modeling/RevolveOp.h"
 #include "../modeling/SketchEditOp.h"
 #include "../modeling/SketchTransformOp.h"
 #include <functional>
+#include <set>
+#include <vector>
 
 namespace materializr {
 
@@ -25,8 +28,49 @@ inline int sketchIdForCascade(const Operation* op, const Document& doc) {
     return -1;
 }
 
-// Re-derive the profile of every enabled sketch-sourced extrude / push-pull that
-// references `sketchId` and return the index of the EARLIEST one that rebuilt
+// Undo can leave a sketch empty: stepping back past the step that drew it
+// restores the sketch to zero elements, but the sketch itself stays in the
+// document. Left visible it is a blank entry that can be opened and Finished -
+// which deletes it, so the redo that should bring its geometry back has
+// nothing to land on. So a sketch emptied that way becomes a GHOST: hidden
+// from every listing, kept in the document, and unghosted by the redo that
+// refills it. Once the redo chain that would restore it is gone (a new step
+// replaced the redo stack) the ghost is removed for real.
+//
+// `keepSketchId` (the sketch being edited right now) is never touched.
+// Returns true when anything changed. Cheap enough to run whenever
+// History::revision() moves.
+inline bool syncGhostSketches(const History& history, Document& doc,
+                              int keepSketchId = -1) {
+    const int applied = history.currentStep();
+    std::set<int> redoRefs;
+    for (int i = applied + 1; i < history.stepCount(); ++i)
+        if (int sid = sketchIdForCascade(history.getStep(i), doc); sid >= 0)
+            redoRefs.insert(sid);
+    bool changed = false;
+    for (int sid : doc.getAllSketchIdsIncludingGhosts()) {
+        if (sid == keepSketchId) continue;
+        auto sk = doc.getSketch(sid);
+        if (!sk) continue;
+        const bool empty = sk->elementCount() == 0;
+        if (doc.isSketchGhost(sid)) {
+            if (!empty) {
+                doc.setSketchGhost(sid, false);
+                changed = true;
+            } else if (!redoRefs.count(sid)) {
+                doc.removeSketch(sid);
+                changed = true;
+            }
+        } else if (empty && redoRefs.count(sid)) {
+            doc.setSketchGhost(sid, true);
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+// Re-derive the profile of every enabled sketch-sourced extrude / push-pull /
+// lathe that references `sketchId` and return the index of the EARLIEST one that rebuilt
 // (-1 if none). `*matchedOut` counts the ones that reference the sketch at all.
 //
 // Only steps that are currently APPLIED (index <= currentStep) are considered.
@@ -57,6 +101,10 @@ inline int rederiveSketchDrivenOps(History& history, Document& doc, int sketchId
             ++matched;
             if (pp->rebuildProfileFromSketch(doc, sketchId) && earliest < 0)
                 earliest = i;
+        } else if (auto* rv = dynamic_cast<RevolveOp*>(op)) {
+            if (rv->getSketchId() != sketchId) continue;
+            ++matched;
+            if (rv->rebuildProfileFromSketch(doc) && earliest < 0) earliest = i;
         }
     }
     if (matchedOut) *matchedOut = matched;

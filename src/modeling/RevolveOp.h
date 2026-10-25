@@ -21,8 +21,9 @@ public:
     void setMode(RevolveMode mode);
     void setTargetBody(int bodyId);
     // Remember the source sketch so the profile can be re-derived on project
-    // reload (and by a future cascade-on-sketch-edit). -1 = not from a sketch.
+    // reload and by the cascade-on-sketch-edit. -1 = not from a sketch.
     void setSketchSource(int sketchId) { m_sketchId = sketchId; }
+    int getSketchId() const { return m_sketchId; }
 
     // Re-derive m_profile from the source sketch's first closed region -
     // exactly what the Revolve popup used at creation time. Returns false if

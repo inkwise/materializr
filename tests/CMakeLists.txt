@@ -657,6 +657,31 @@ add_executable(test_sketch_regions test_sketch_regions.cpp)
 target_link_libraries(test_sketch_regions PRIVATE materializr_core gtest gtest_main)
 add_test(NAME test_sketch_regions COMMAND test_sketch_regions)
 
+# test_sketch_drawn_regions - whole-sketch Push/Pull skips the host face's leftover region
+add_executable(test_sketch_drawn_regions test_sketch_drawn_regions.cpp)
+target_link_libraries(test_sketch_drawn_regions PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_sketch_drawn_regions COMMAND test_sketch_drawn_regions)
+
+# test_sketch_ghost - a sketch emptied by undo hides until redo, purged once the redo chain is gone
+add_executable(test_sketch_ghost test_sketch_ghost.cpp)
+target_link_libraries(test_sketch_ghost PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_sketch_ghost COMMAND test_sketch_ghost)
+
+# test_revolve_cascade - editing a Lathe's sketch rebuilds the body (cascade covers Revolve)
+add_executable(test_revolve_cascade test_revolve_cascade.cpp)
+target_link_libraries(test_revolve_cascade PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_revolve_cascade COMMAND test_revolve_cascade)
+
+# test_seam_edges - the seam of a round face is hidden from render/highlight, rims and box edges stay
+add_executable(test_seam_edges test_seam_edges.cpp)
+target_link_libraries(test_seam_edges PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_seam_edges COMMAND test_seam_edges)
+
+# test_camera_animation - the sketch-plane glide: smooth, exact end state, input settles it
+add_executable(test_camera_animation test_camera_animation.cpp)
+target_link_libraries(test_camera_animation PRIVATE materializr_core gtest gtest_main)
+add_test(NAME test_camera_animation COMMAND test_camera_animation)
+
 # test_region_anchor - fuzzy region build + region identity across renumbering
 add_executable(test_region_anchor test_region_anchor.cpp)
 target_link_libraries(test_region_anchor PRIVATE materializr_core gtest gtest_main)

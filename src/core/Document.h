@@ -138,6 +138,11 @@ struct SketchEntry {
     std::string name;
     std::shared_ptr<materializr::Sketch> sketch;
     bool visible = true;
+    // Emptied by an undo and kept only so a redo can bring it back. A ghost is
+    // invisible to everything that lists sketches (Items panel, viewport,
+    // picking) and is purged for good once the redo that would restore it is
+    // gone. See syncGhostSketches (core/SketchCascadeTarget.h).
+    bool ghost = false;
 };
 
 class Document {
@@ -273,7 +278,13 @@ public:
     void setSketchName(int id, const std::string& name);
     void setSketchVisible(int id, bool visible);
     bool isSketchVisible(int id) const;
+    // Live sketches only - ghosts (see SketchEntry::ghost) are left out.
     std::vector<int> getAllSketchIds() const;
+    // Live sketches AND ghosts: what a save or a transactional snapshot must
+    // see, since a redo can still resurrect a ghost.
+    std::vector<int> getAllSketchIdsIncludingGhosts() const;
+    void setSketchGhost(int id, bool ghost);
+    bool isSketchGhost(int id) const;
 
     // Mates: a persistent placement relationship between two bodies. Stored
     // with the model rather than replayed as history steps, exactly as sketch

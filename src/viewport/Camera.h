@@ -80,6 +80,29 @@ public:
     /// Get the far clipping plane distance.
     float getFarPlane() const { return m_farPlane; }
 
+    // --- Animated view changes ---------------------------------------------
+    // Move to a new view over `seconds` instead of teleporting there, so the
+    // user can follow where the camera went (entering a sketch on a plane used
+    // to cut straight to a flat view and lose the sense of where it was).
+    //
+    // The motion is a turntable-free arc: the view direction slerps, the
+    // distance eases geometrically, target and up blend. It runs in PERSPECTIVE
+    // and, when the destination is orthographic, ends at the perspective view
+    // whose framing equals the ortho box, then switches to orthographic - so the
+    // hand-off does not jump. An orthographic start is converted the same way.
+    //
+    // Any direct camera change (orbit, pan, zoom, set*, reset, zoomToFit) first
+    // JUMPS to the end of a running animation, so user input never fights the
+    // tween and the final state is always the one asked for.
+    void animateTo(glm::vec3 position, glm::vec3 target, glm::vec3 up,
+                   bool orthographic, float orthoSize, float seconds = 0.3f);
+    /// Advance by `dtSeconds`. Returns true while the view moved this call, i.e.
+    /// the caller must render this frame and keep ticking.
+    bool tick(float dtSeconds);
+    bool isAnimating() const { return m_anim.active; }
+    /// Jump to the end of a running animation (no-op when idle).
+    void finishAnimation();
+
     /// Toggle orthographic projection. Pan and zoom preserve this mode; orbit clears it.
     void setOrthographic(bool ortho) { m_orthographic = ortho; }
     bool isOrthographic() const { return m_orthographic; }
@@ -125,6 +148,17 @@ public:
     void setPanRefDist(float d) { m_panRefDist = d; }
 
 private:
+    struct Animation {
+        bool active = false;
+        float t = 0.0f, duration = 0.3f;
+        glm::vec3 p0{0.0f}, t0{0.0f}, u0{0.0f};   // start (perspective equivalent)
+        glm::vec3 p1{0.0f}, t1{0.0f}, u1{0.0f};   // end (perspective equivalent)
+        glm::vec3 endPos{0.0f};                   // the real destination
+        bool  endOrtho = false;
+        float endOrthoSize = 10.0f;
+    };
+    Animation m_anim;
+
     glm::vec3 m_position;
     glm::vec3 m_target;
     glm::vec3 m_up;

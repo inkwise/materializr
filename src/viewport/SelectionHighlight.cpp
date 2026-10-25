@@ -1,5 +1,6 @@
 #include "gl_common.h"
 #include "SelectionHighlight.h"
+#include "../modeling/SeamEdges.h"
 #include "core/SelectionManager.h"
 #include "core/Document.h"
 
@@ -369,9 +370,11 @@ void SelectionHighlight::renderBody(const TopoDS_Shape& bodyShape, const glm::ma
         entry.shape = bodyShape;
         entry.loc = bodyShape.Location();
         std::vector<float> verts;
+        const auto edgeFaces = materializr::edgeFaceMap(bodyShape);
         for (TopExp_Explorer exp(bodyShape, TopAbs_EDGE); exp.More(); exp.Next()) {
             try {
                 TopoDS_Edge edge = TopoDS::Edge(exp.Current());
+                if (materializr::isSeamEdge(edge, edgeFaces)) continue;
                 BRepAdaptor_Curve curve(edge);
                 GCPnts_TangentialDeflection discretizer(curve, 0.1, 0.1);
                 int nPts = discretizer.NbPoints();

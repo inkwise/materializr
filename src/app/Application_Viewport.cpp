@@ -458,6 +458,9 @@ void Application::renderViewport() {
         // lets Camera::pan translate exactly one pixel's world size per pixel
         // dragged, so pan tracking stays 1:1 at every zoom level.
         cam.setViewHeightPx(contentSize.y);
+        // Advance a running camera move (sketch-plane glide). The step is capped
+        // so a long idle wait before the first frame can't skip most of it.
+        cam.tick(std::min(ImGui::GetIO().DeltaTime, 1.0f / 30.0f));
         glm::mat4 view = cam.getViewMatrix();
         glm::mat4 proj = cam.getProjectionMatrix();
 
