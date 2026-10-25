@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 
 PackageIdentifier: Materializr.Materializr
-PackageVersion: 1.7.4
+PackageVersion: 1.7.5
 PackageLocale: en-US
 Publisher: Materializr
 PublisherUrl: https://github.com/materializr-cad
@@ -33,17 +33,26 @@ Tags:
 - opencascade
 - svg
 ReleaseNotes: |-
-  Materializr 1.7.4
-  Materials and grids: give each body a real material with a mass and a finish, and pattern sketches into grids.
+  Materializr 1.7.5
+  Sketching and laser work: fill regions for engraving, rebindable keyboard shortcuts, a Trim that cuts splines, and a round of fixes from tester reports.
   Added
-  - Materials: give each body a 3D printing plastic (PLA, PETG, ABS, ASA, TPU, nylon and more), a metal, wood or another material, saved with the project
-  - Volume and mass in Properties, plus an estimated printed mass from infill and wall count for printing plastics
-  - Material finishes in the viewport: metals reflect a photographed studio, wood shows a grain (Settings > Appearance > Materials turns the reflections off)
-  - Grid sketch patterns: Linear Pattern copies left, right, up and/or down with its own count and spacing per direction; two or more directions make a grid
+  - Fill tool for laser engraving: click a closed sketch region to fill it, again to clear it; fills never affect modeling, and SVG/DXF export writes them (optionally in grey) so laser software can treat them separately
+  - Rebindable keyboard shortcuts: Settings > Navigation lists 18 shortcuts to click and rebind
+  - Custom polygon sides: any side count from 3 to 128
+  - Camera glide into a sketch plane (Settings > Navigation > Animate camera moves turns it off)
   Changed
-  - The appearance editor opens in place of the Items list, so the viewport stays usable while it is open
+  - Trim cuts splines and polygon edges instead of removing them whole, splines also act as cutters, and hover previews exactly what a click removes
+  - Seam lines on round faces are no longer drawn
+  - Chamfer and Fillet keep your selection and panel after a rejected size, and the stepper gains -0.1, -1 and -10 buttons
+  - The startup tab no longer carries a stray demo cube
   Fixed
-  - Every cell of a tiled sketch pattern now closes into a region that Push/Pull and Extrude can pick
-ReleaseNotesUrl: https://github.com/materializr-cad/materializr/releases/tag/v1.7.4
+  - Push/Pull on a whole sketch no longer cuts or raises the entire face behind it
+  - Deleting circles, arcs and splines works, and deleting from a sketch now updates bodies built from it, including Lathe; undo and redo follow
+  - Undoing a sketch edit could jump forward through steps just undone
+  - Typed Extrude and Push/Pull distances are exact; Enter with grid snap on no longer rounds 0.2 to nothing
+  - Chamfer with a setback exactly equal to the neighbouring face no longer fails
+  - Scaling a body could close the app on the next autosave
+  - Edge selection works just outside a silhouette edge, and rim selection of circles works with drawing aids off
+ReleaseNotesUrl: https://github.com/materializr-cad/materializr/releases/tag/v1.7.5
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0
