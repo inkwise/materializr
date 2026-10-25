@@ -5,6 +5,62 @@ All notable changes to Materializr are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [1.7.5] - 2026-10-25
+
+Sketching and laser work: fill regions for engraving, rebindable keyboard
+shortcuts, a Trim that cuts splines, and a round of fixes from tester reports.
+
+### Added
+
+- **Fill tool for laser engraving.** In sketch mode, click or tap a closed
+  region to fill it, and again to clear it. Fills are cosmetic: they never
+  affect Extrude, Push/Pull or any other modeling. SVG export writes each
+  fill as a path and DXF export puts it on a FILL layer. Exporting a sketch
+  with fills asks whether to make them grey, so laser software can give them
+  a different operation than the outlines.
+- **Rebindable keyboard shortcuts.** Settings ▸ Navigation lists 18
+  shortcuts; click one and press the new combination. A combination already in
+  use is taken from its old action. The menus, the Interactions panel and
+  Help ▸ Keyboard Shortcuts show your bindings.
+- **Custom polygon sides.** The Polygon tool has a "Custom..." entry for any
+  side count from 3 to 128.
+- **Camera glide into a sketch.** The view now eases into the sketch plane
+  instead of jumping. Settings ▸ Navigation ▸ Animate camera moves turns it off.
+
+### Changed
+
+- **Trim cuts splines and polygon edges.** Before, one click removed the whole
+  spline or polygon. Now a spline is cut at its crossings and only the stretch
+  under the cursor goes, and a polygon edge is trimmed like a line. Splines
+  also act as cutters when trimming lines, arcs and circles, and the hover
+  preview shows exactly what a click will remove.
+- Seam lines on round faces are no longer drawn.
+- Chamfer and Fillet: a rejected size keeps your selection and the panel open
+  instead of dropping you out, and the size stepper gains -0.1, -1 and -10
+  buttons.
+- The startup tab no longer carries a stray demo cube, so opening a project
+  from the home screen doesn't leave an extra tab behind.
+
+### Fixed
+
+- **Push/Pull on a whole sketch** no longer cuts or raises the entire face
+  behind it.
+- **Deleting circles, arcs and splines** from a sketch works, and deleting
+  from a sketch now updates bodies built from it, including Lathe. Undo and
+  redo follow too.
+- **Undo "stuck in a loop".** Undoing a sketch edit could jump forward through
+  steps you had just undone.
+- **Typed Extrude and Push/Pull distances** are now exact. Pressing Enter with
+  grid snap on rounded a typed 0.2 to the grid and committed nothing.
+- **Chamfer** with a setback exactly equal to the neighbouring face no longer
+  fails as invalid geometry.
+- **Scaling a body** could close the app on the next autosave. Uniform scale
+  is now exact, and a save error is reported instead of crashing.
+- **Edge selection** works when you click just outside a silhouette edge, and
+  thin faces keep a usable edge target.
+- **Selecting a circle by its rim** with drawing aids off no longer misses.
+- Translation gaps filled across the sketch toolbars and menus.
+
 ## [1.7.4] - 2026-10-17
 
 Materials and grids: give each body a real material with a mass and a finish,
