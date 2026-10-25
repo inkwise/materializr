@@ -3173,7 +3173,11 @@ bool segSeg(glm::vec2 a0, glm::vec2 a1, glm::vec2 b0, glm::vec2 b1, float& t, fl
     glm::vec2 d1 = a1 - a0;
     glm::vec2 d2 = b1 - b0;
     float denom = d1.x * d2.y - d1.y * d2.x;
-    if (std::abs(denom) < 1e-12f) return false;
+    // Relative to the segment lengths, not absolute: two collinear sample runs
+    // (a 2-point spline is a straight line) have a cross product that is exactly
+    // 0 on x86 but ~1e-7 of rounding noise where the compiler fuses multiply-adds
+    // (Apple arm64), and that noise read as a crossing at a random spot.
+    if (std::abs(denom) <= 1e-6f * glm::length(d1) * glm::length(d2)) return false;
     t = ((b0.x - a0.x) * d2.y - (b0.y - a0.y) * d2.x) / denom;
     u = ((b0.x - a0.x) * d1.y - (b0.y - a0.y) * d1.x) / denom;
     const float eps = 1e-4f;
