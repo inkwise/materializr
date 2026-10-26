@@ -8,7 +8,10 @@
 #include "modeling/PushPullOp.h"
 
 #include <gtest/gtest.h>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepCheck_Analyzer.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <gp_Pln.hxx>
 #include <BRepGProp.hxx>
 #include <BRepGProp_Face.hxx>
 #include <BRep_Tool.hxx>
@@ -98,4 +101,47 @@ TEST(PushPullThrough, PartialCutStillWorks) {
     ASSERT_TRUE(hasSolid(after));
     EXPECT_LT(solidVolume(after), vol0 - 1.0) << "partial cut must remove material";
     EXPECT_GT(solidVolume(after), 1.0);
+}
+
+// A grille is dozens of slot regions cut in one gesture. They must land as ONE
+// boolean per body: the old per-region loop re-booleaned an ever more complex
+// body (50 s for 150 slots on a real lid) and silently left some slots uncut.
+TEST(PushPullThrough, ManySlotCutIsOneCompleteBoolean) {
+    Document doc;
+    TopoDS_Shape plate = BRepPrimAPI_MakeBox(gp_Pnt(0,0,0), 100, 100, 10).Shape();
+    int id = doc.addBody(plate, "Plate");
+    const double vol0 = solidVolume(doc.getBody(id));
+
+    const int kSlots = 40;                     // 40 slots, 2 x 40, 2 mm deep
+    std::vector<PushPullOp::Target> targets;
+    for (int i = 0; i < kSlots; ++i) {
+        const double x = 2.0 + 2.4 * i;        // 0.4 mm webs between slots
+        gp_Pln pln(gp_Pnt(0, 0, 10), gp_Dir(0, 0, 1));
+        TopoDS_Face f = BRepBuilderAPI_MakeFace(
+            pln, x, x + 2.0, 30.0, 70.0).Face();
+        PushPullOp::Target t;
+        t.profile = f;
+        t.sourceBodyId = id;
+        targets.push_back(t);
+    }
+    PushPullOp op;
+    op.setTargets(std::move(targets));
+    // Sketch-sourced, like a real grille: keeps the profiles from being
+    // re-resolved to the plate's own top face.
+    for (int i = 0; i < kSlots; ++i) op.setSketchSource(i, 1, i);
+    op.setDistance(-2.0);
+    op.setCutIntersecting(true);
+
+    ASSERT_TRUE(op.execute(doc));
+    TopoDS_Shape after = doc.getBody(id);
+    ASSERT_TRUE(hasSolid(after));
+    int solids = 0;
+    for (TopExp_Explorer ex(after, TopAbs_SOLID); ex.More(); ex.Next()) ++solids;
+    EXPECT_EQ(solids, 1);
+    EXPECT_TRUE(BRepCheck_Analyzer(after).IsValid());
+    EXPECT_NEAR(vol0 - solidVolume(after), kSlots * 2.0 * 40.0 * 2.0, 1e-3)
+        << "every slot must be cut";
+
+    ASSERT_TRUE(op.undo(doc));
+    EXPECT_NEAR(solidVolume(doc.getBody(id)), vol0, 1e-6);
 }

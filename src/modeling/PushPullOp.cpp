@@ -36,6 +36,9 @@
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopoDS_Compound.hxx>
+#include <BRep_Builder.hxx>
+#include <map>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <TopAbs.hxx>
 #include <gp_Pnt.hxx>
@@ -401,7 +404,7 @@ bool PushPullOp::execute(Document& doc) {
     // heaviest step of the commit) would run with no progress and no Cancel.
     Message_ProgressScope targets(
         progress.IsNull() ? Message_ProgressRange() : progress->Start(),
-        nullptr, static_cast<int>(m_targets.size()));
+        nullptr, static_cast<int>(m_targets.size()) + 1);
     // Asked of the bridge itself rather than tracked in a flag: an aborted
     // boolean leaves the loop through `continue`, which would step over any
     // check written at the end of the loop body.
@@ -482,6 +485,101 @@ bool PushPullOp::execute(Document& doc) {
         }
         return n;
     };
+
+    // Cut or fuse ONE prism into its host body: the boolean, the graze-to-fill
+    // fallback, UnifySameDomain and the lineage publish. Used per target, and
+    // as the fallback when the batched cut below is unusable.
+    auto applyAttached = [&](int sourceBodyId, const TopoDS_Shape& prism,
+                             Message_ProgressScope& tgtScope) {
+        // Save original (once per body)
+        if (!savedBodies.count(sourceBodyId)) {
+            try {
+                m_previousBodies.emplace_back(sourceBodyId,
+                                              doc.getBody(sourceBodyId));
+                savedBodies.insert(sourceBodyId);
+            } catch (...) { return; }
+        }
+
+        TopoDS_Shape current = doc.getBody(sourceBodyId);
+        TopoDS_Shape result;
+        try {
+            if (m_distance > 0) {
+                BRepAlgoAPI_Fuse fuse;
+                materializr::setBooleanShapes(fuse, current, prism);
+                fuse.Build(tgtScope.Next());
+                if (!fuse.IsDone()) return;
+                result = fuse.Shape();
+                captureLedger(sourceBodyId, current, fuse);
+            } else {
+                BRepAlgoAPI_Cut cut;
+                materializr::setBooleanShapes(cut, current, prism);
+                cut.Build(tgtScope.Next());
+                if (!cut.IsDone()) return;
+                result = cut.Shape();
+                captureLedger(sourceBodyId, current, cut);
+                // CUT vs ADD: when the inward sweep passes through space
+                // the body doesn't own (an existing hole), the cut removes
+                // ~nothing - the gesture is a FILL, not a cut. The margin
+                // is relative to the tool volume: coincident-face booleans
+                // leave ~1e-3 mm³ slivers, and the plug/hole pair can
+                // mismatch by that much noise, so an absolute epsilon
+                // can't tell "grazed" from "cut". Fuse instead - but only
+                // accept a result that welds into ONE solid; a prism that
+                // merely missed the body entirely must stay a no-op, not
+                // graft a disjoint lump onto it.
+                double removed = 0.0, toolVol = 0.0;
+                try {
+                    GProp_GProps gc, gr, gt;
+                    BRepGProp::VolumeProperties(current, gc);
+                    BRepGProp::VolumeProperties(result, gr);
+                    BRepGProp::VolumeProperties(prism, gt);
+                    removed = gc.Mass() - gr.Mass();
+                    toolVol = gt.Mass();
+                } catch (...) {}
+                if (removed < std::max(1e-6, toolVol * 1e-3)) {
+                    BRepAlgoAPI_Fuse fill;
+                    materializr::setBooleanShapes(fill, current, prism);
+                    fill.Build(tgtScope.Next());
+                    if (!fill.IsDone()) return;
+                    TopoDS_Shape fused = fill.Shape();
+                    int nSolids = 0;
+                    for (TopExp_Explorer sx(fused, TopAbs_SOLID);
+                         sx.More(); sx.Next()) ++nSolids;
+                    if (nSolids != 1 ||
+                        !BRepCheck_Analyzer(fused).IsValid()) return;
+                    result = fused;
+                    captureLedger(sourceBodyId, current, fill);
+                }
+            }
+            if (m_distance < 0 && !keepsASolid(result)) {
+                std::fprintf(stderr, "Push/Pull declined for body %d: the "
+                             "cut would remove the entire body\n",
+                             sourceBodyId);
+                return;
+            }
+            TopoDS_Shape rawResult = result;
+            Handle(BRepTools_History) unifyHist;
+            result = materializr::unifySameDomain(result, "Push/Pull",
+                                                  /*concatBSplines=*/true,
+                                                  &unifyHist);
+            snapshotLineage(doc, sourceBodyId);
+            doc.updateBody(sourceBodyId, result);
+            publishLineage(doc, sourceBodyId, current, rawResult,
+                           unifyHist, result);
+            anyChange = true;
+        } catch (...) { return; }
+    };
+
+    // A cut with several attached targets is ONE boolean per body with every
+    // prism as a tool, not one boolean + unify per prism. Cutting 150 grille
+    // slots one at a time took ~7 minutes and left an invalid, multi-solid
+    // body (each cut re-booleans the ever-more-complex result, and the
+    // graze-to-fill fallback fuses plugs back in); a single cut is ~1.5 s.
+    int attachedTargets = 0;
+    for (const auto& t : m_targets)
+        if (t.sourceBodyId >= 0 && !t.profile.IsNull()) ++attachedTargets;
+    const bool batchCut = m_distance < 0.0 && attachedTargets > 1;
+    std::map<int, std::vector<TopoDS_Shape>> pendingCuts; // host body -> prisms
 
     for (const auto& tgt : m_targets) {
         if (cancelled()) break;
@@ -583,83 +681,13 @@ bool PushPullOp::execute(Document& doc) {
         } catch (...) { continue; }
 
         if (tgt.sourceBodyId >= 0) {
-            // Save original (once per body)
-            if (!savedBodies.count(tgt.sourceBodyId)) {
-                try {
-                    m_previousBodies.emplace_back(tgt.sourceBodyId,
-                                                  doc.getBody(tgt.sourceBodyId));
-                    savedBodies.insert(tgt.sourceBodyId);
-                } catch (...) { continue; }
+            if (batchCut) {
+                // Collected here, cut together after the loop (which also
+                // does the through-model cut for the whole set).
+                pendingCuts[tgt.sourceBodyId].push_back(prism);
+                continue;
             }
-
-            TopoDS_Shape current = doc.getBody(tgt.sourceBodyId);
-            TopoDS_Shape result;
-            try {
-                if (m_distance > 0) {
-                    BRepAlgoAPI_Fuse fuse;
-                    materializr::setBooleanShapes(fuse, current, prism);
-                    fuse.Build(tgtScope.Next());
-                    if (!fuse.IsDone()) continue;
-                    result = fuse.Shape();
-                    captureLedger(tgt.sourceBodyId, current, fuse);
-                } else {
-                    BRepAlgoAPI_Cut cut;
-                    materializr::setBooleanShapes(cut, current, prism);
-                    cut.Build(tgtScope.Next());
-                    if (!cut.IsDone()) continue;
-                    result = cut.Shape();
-                    captureLedger(tgt.sourceBodyId, current, cut);
-                    // CUT vs ADD: when the inward sweep passes through space
-                    // the body doesn't own (an existing hole), the cut removes
-                    // ~nothing - the gesture is a FILL, not a cut. The margin
-                    // is relative to the tool volume: coincident-face booleans
-                    // leave ~1e-3 mm³ slivers, and the plug/hole pair can
-                    // mismatch by that much noise, so an absolute epsilon
-                    // can't tell "grazed" from "cut". Fuse instead - but only
-                    // accept a result that welds into ONE solid; a prism that
-                    // merely missed the body entirely must stay a no-op, not
-                    // graft a disjoint lump onto it.
-                    double removed = 0.0, toolVol = 0.0;
-                    try {
-                        GProp_GProps gc, gr, gt;
-                        BRepGProp::VolumeProperties(current, gc);
-                        BRepGProp::VolumeProperties(result, gr);
-                        BRepGProp::VolumeProperties(prism, gt);
-                        removed = gc.Mass() - gr.Mass();
-                        toolVol = gt.Mass();
-                    } catch (...) {}
-                    if (removed < std::max(1e-6, toolVol * 1e-3)) {
-                        BRepAlgoAPI_Fuse fill;
-                        materializr::setBooleanShapes(fill, current, prism);
-                        fill.Build(tgtScope.Next());
-                        if (!fill.IsDone()) continue;
-                        TopoDS_Shape fused = fill.Shape();
-                        int nSolids = 0;
-                        for (TopExp_Explorer sx(fused, TopAbs_SOLID);
-                             sx.More(); sx.Next()) ++nSolids;
-                        if (nSolids != 1 ||
-                            !BRepCheck_Analyzer(fused).IsValid()) continue;
-                        result = fused;
-                        captureLedger(tgt.sourceBodyId, current, fill);
-                    }
-                }
-                if (m_distance < 0 && !keepsASolid(result)) {
-                    std::fprintf(stderr, "Push/Pull declined for body %d: the "
-                                 "cut would remove the entire body\n",
-                                 tgt.sourceBodyId);
-                    continue;
-                }
-                TopoDS_Shape rawResult = result;
-                Handle(BRepTools_History) unifyHist;
-                result = materializr::unifySameDomain(result, "Push/Pull",
-                                                      /*concatBSplines=*/true,
-                                                      &unifyHist);
-                snapshotLineage(doc, tgt.sourceBodyId);
-                doc.updateBody(tgt.sourceBodyId, result);
-                publishLineage(doc, tgt.sourceBodyId, current, rawResult,
-                               unifyHist, result);
-                anyChange = true;
-            } catch (...) { continue; }
+            applyAttached(tgt.sourceBodyId, prism, tgtScope);
         } else {
             // Free-floating prism. Cut-intersecting subtracts it from every
             // visible body it overlaps; if it hits nothing it falls back to a
@@ -700,6 +728,85 @@ bool PushPullOp::execute(Document& doc) {
         if (m_cutIntersecting && tgt.sourceBodyId >= 0 && m_distance < 0.0)
             if (cutVisibleBodies(prism, tgt.sourceBodyId, tgtScope.Next()) > 0)
                 anyChange = true;
+    }
+
+    // The batched cuts collected in the loop: one boolean per host body.
+    for (auto& [bid, prisms] : pendingCuts) {
+        if (cancelled()) break;
+        Message_ProgressScope batchScope(targets.Next(), nullptr, 3);
+        TopoDS_Shape current;
+        try { current = doc.getBody(bid); } catch (...) { continue; }
+        if (current.IsNull()) continue;
+
+        bool applied = false;
+        try {
+            TopTools_ListOfShape args, tools;
+            args.Append(current);
+            for (const auto& pr : prisms) tools.Append(pr);
+            BRepAlgoAPI_Cut cut;
+            cut.SetArguments(args);
+            cut.SetTools(tools);
+            cut.SetRunParallel(true);
+             cut.Build(batchScope.Next()); 
+            if (cut.IsDone()) {
+                TopoDS_Shape result = cut.Shape();
+                double removed = 0.0, toolVol = 0.0;
+                if (!result.IsNull() && keepsASolid(result) &&
+                    BRepCheck_Analyzer(result).IsValid()) {
+                    GProp_GProps gc, gr;
+                    BRepGProp::VolumeProperties(current, gc);
+                    BRepGProp::VolumeProperties(result, gr);
+                    removed = gc.Mass() - gr.Mass();
+                    for (const auto& pr : prisms) {
+                        GProp_GProps gt;
+                        BRepGProp::VolumeProperties(pr, gt);
+                        toolVol += gt.Mass();
+                    }
+                    // Same graze test as the single-target path: a cut that
+                    // removed next to nothing is not a cut (every prism sat in
+                    // an existing hole) - let the per-target path decide.
+                    if (removed >= std::max(1e-6, toolVol * 1e-3)) {
+                        if (!savedBodies.count(bid)) {
+                            m_previousBodies.emplace_back(bid, current);
+                            savedBodies.insert(bid);
+                        }
+                        captureLedger(bid, current, cut);
+                        TopoDS_Shape rawResult = result;
+                        Handle(BRepTools_History) unifyHist;
+                        result = materializr::unifySameDomain(
+                            result, "Push/Pull", /*concatBSplines=*/true, &unifyHist);
+                        snapshotLineage(doc, bid);
+                        doc.updateBody(bid, result);
+                        publishLineage(doc, bid, current, rawResult, unifyHist, result);
+                        anyChange = true;
+                        applied = true;
+                    }
+                }
+            }
+        } catch (...) {}
+
+        if (applied) {
+            // Through-model cut across every other visible body, once for the set.
+            if (m_cutIntersecting) {
+                TopoDS_Compound all;
+                BRep_Builder bb;
+                bb.MakeCompound(all);
+                for (const auto& pr : prisms) bb.Add(all, pr);
+                if (cutVisibleBodies(all, bid, batchScope.Next()) > 0)
+                    anyChange = true;
+            }
+            continue;
+        }
+
+        // The batch was refused or invalid: do it the slow way, one target at a time.
+        for (const auto& pr : prisms) {
+            if (cancelled()) break;
+            Message_ProgressScope one(Message_ProgressRange(), nullptr, 3);
+            applyAttached(bid, pr, one);
+            if (m_cutIntersecting &&
+                cutVisibleBodies(pr, bid, Message_ProgressRange()) > 0)
+                anyChange = true;
+        }
     }
 
     // A cancel must leave nothing behind. History::pushOperation does not
