@@ -273,7 +273,12 @@ void SketchTool::onMouseMove(glm::vec2 pos) {
         // the others off.
         if (pts.size() == 1 && m_dragPointId >= 0) {
             const SketchPoint* p = m_sketch->getPoint(m_dragPointId);
-            if (p) {
+            // `delta` is between SNAPPED cursor positions, so it is zero for any
+            // move event that stays inside one grid cell - including the one that
+            // follows a plain click. Re-snapping the point's own position then
+            // yanked a merely-selected point onto the nearest grid node. Wait for
+            // the cursor to actually travel before the magnet engages.
+            if (p && delta != glm::vec2(0.0f)) {
                 m_snapExcludePoints = pts;
                 glm::vec2 target = p->pos + delta;
                 glm::vec2 inferred = snap(target);
@@ -2330,10 +2335,12 @@ void SketchTool::selectAll() {
     m_selectedLines.clear();
     m_selectedCircles.clear();
     m_selectedArcs.clear();
+    m_selectedSplines.clear();
     for (const auto& p : m_sketch->getPoints())  m_selectedPoints.insert(p.id);
     for (const auto& l : m_sketch->getLines())   m_selectedLines.insert(l.id);
     for (const auto& c : m_sketch->getCircles()) m_selectedCircles.insert(c.id);
     for (const auto& a : m_sketch->getArcs())    m_selectedArcs.insert(a.id);
+    for (const auto& sp : m_sketch->getSplines()) m_selectedSplines.insert(sp.id);
 }
 
 void SketchTool::handleSelectTool(glm::vec2 pos) {
@@ -2347,6 +2354,7 @@ void SketchTool::handleSelectTool(glm::vec2 pos) {
     int nearLine = -1;
     int nearCircle = -1;
     int nearArc = -1;
+    int nearSpline = -1;
     const float tol = std::max(tolStep() * 0.5f, 0.5f) * snapScale(); // sketch units (wider on touch)
     if (nearPt < 0) {
         // Line segments.
@@ -2393,6 +2401,25 @@ void SketchTool::handleSelectTool(glm::vec2 pos) {
                     bestArcD = d;
                 }
             }
+            // Splines: distance to the sampled curve (same sampling the trim and
+            // region code use). Without this a spline could only be box-selected.
+            if (nearArc < 0) {
+                float bestSplineD = 0.0f;
+                for (const auto& sp : m_sketch->getSplines()) {
+                    const std::vector<glm::vec2> samp = m_sketch->sampleSpline2D(sp, 24);
+                    for (size_t i = 0; i + 1 < samp.size(); ++i) {
+                        const glm::vec2 ab = samp[i + 1] - samp[i];
+                        const float len2 = glm::dot(ab, ab);
+                        const float t = len2 < 1e-12f ? 0.0f
+                            : glm::clamp(glm::dot(pos - samp[i], ab) / len2, 0.0f, 1.0f);
+                        const float d = glm::distance(samp[i] + ab * t, pos);
+                        if (d < tol && (nearSpline < 0 || d < bestSplineD)) {
+                            nearSpline = sp.id;
+                            bestSplineD = d;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2402,13 +2429,15 @@ void SketchTool::handleSelectTool(glm::vec2 pos) {
         (nearPt    >= 0 && m_selectedPoints.count(nearPt))   ||
         (nearLine  >= 0 && m_selectedLines.count(nearLine))  ||
         (nearCircle>= 0 && m_selectedCircles.count(nearCircle)) ||
-        (nearArc   >= 0 && m_selectedArcs.count(nearArc));
+        (nearArc   >= 0 && m_selectedArcs.count(nearArc))    ||
+        (nearSpline>= 0 && m_selectedSplines.count(nearSpline));
 
     if (!m_lastDownAddedToSel && !reclickedSelected) {
         m_selectedPoints.clear();
         m_selectedLines.clear();
         m_selectedCircles.clear();
         m_selectedArcs.clear();
+        m_selectedSplines.clear();
     }
 
     if (nearPt >= 0) {
@@ -2437,6 +2466,13 @@ void SketchTool::handleSelectTool(glm::vec2 pos) {
             else m_selectedArcs.insert(nearArc);
         } else {
             m_selectedArcs.insert(nearArc);
+        }
+    } else if (nearSpline >= 0) {
+        if (m_lastDownAddedToSel) {
+            if (m_selectedSplines.count(nearSpline)) m_selectedSplines.erase(nearSpline);
+            else m_selectedSplines.insert(nearSpline);
+        } else {
+            m_selectedSplines.insert(nearSpline);
         }
     }
     // Empty space + no modifier: selection already cleared above.

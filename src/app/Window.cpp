@@ -341,6 +341,10 @@ void Window::shutdownImGuiBackend() {
     ImGui_ImplSDL3_Shutdown();
 }
 
+void Window::setVSync(bool on) {
+    SDL_GL_SetSwapInterval(on ? 1 : 0);
+}
+
 void Window::swapBuffers() {
 #if defined(MZ_IOS)
     // presentRenderbuffer presents the *currently bound* GL_RENDERBUFFER -

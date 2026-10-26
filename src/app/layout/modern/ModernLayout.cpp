@@ -139,6 +139,15 @@ void Application::renderModernLayout() {
                                                 : materializr::tr("Focus");
         float total = bh * nSquare + sp * nSquare +
                       touchui::pillButtonWidth(focusIcon, focusLbl);
+        // "Back": the touch twin of Backspace while a line chain / spline is being
+        // laid down (classic has it in the viewport bar; this layout had none).
+        const bool canBack = toolRunning && m_sketchTool &&
+            ((m_sketchTool->getMode() == SketchToolMode::Line &&
+              m_sketchTool->lineSegmentCount() >= 1) ||
+             (m_sketchTool->getMode() == SketchToolMode::Spline &&
+              !m_sketchTool->splinePointsInProgress().empty()));
+        if (canBack)
+            total += touchui::pillButtonWidth(MZ_ICON_UNDO, materializr::tr("Back")) + sp;
         if (m_inSketchMode)
             total += touchui::twoRowButtonWidth(materializr::tr("Inference level"), materializr::tr(infLbl)) + sp +
                      touchui::pillButtonWidth(MZ_ICON_FINISH, finishLbl) +
@@ -284,6 +293,14 @@ void Application::renderModernLayout() {
                                     m_multiSelectToggle))
                 m_multiSelectToggle = !m_multiSelectToggle;
             tip(materializr::tr("Multi-select: add taps to the current selection\n(the touch equivalent of holding Ctrl)"));
+            ImGui::SameLine(0.0f, sp);
+            ImGui::SetCursorPosY(cy);
+        }
+
+        if (canBack) {
+            if (touchui::pillButton("back", MZ_ICON_UNDO, materializr::tr("Back")))
+                sketchChainBack();
+            tip(materializr::tr("Remove the last segment and keep drawing"));
             ImGui::SameLine(0.0f, sp);
             ImGui::SetCursorPosY(cy);
         }

@@ -6469,6 +6469,25 @@ void Application::renderViewport() {
                                 outCurveId = a.id; bestC = d;
                             }
                         }
+                        // Splines: nearest point on the sampled curve. Without this a
+                        // click on a spline read as empty space and started a box
+                        // select instead of reaching SketchTool's select/drag.
+                        if (outCurveId < 0) {
+                            for (const auto& sp : m_activeSketch->getSplines()) {
+                                const std::vector<glm::vec2> samp =
+                                    m_activeSketch->sampleSpline2D(sp, 24);
+                                for (size_t i = 0; i + 1 < samp.size(); ++i) {
+                                    const glm::vec2 ab = samp[i + 1] - samp[i];
+                                    const float len2 = glm::dot(ab, ab);
+                                    const float t = len2 < 1e-12f ? 0.0f
+                                        : glm::clamp(glm::dot(pos - samp[i], ab) / len2, 0.0f, 1.0f);
+                                    const float d = glm::distance(samp[i] + ab * t, pos);
+                                    if (d < lineTol && (outCurveId < 0 || d < bestC)) {
+                                        outCurveId = sp.id; bestC = d;
+                                    }
+                                }
+                            }
+                        }
                     }
                 };
 
@@ -6944,7 +6963,22 @@ void Application::renderViewport() {
         m_themeManager && m_themeManager->getTheme() == Theme::Light,
         m_window && m_window->lastLeftReleaseWasGesture());
     if (vcAction != ViewCubeAction::None) {
-        handleViewCubeAction(static_cast<int>(vcAction));
+        Camera& vcCam = m_viewport->getCamera();
+        if (m_animateCamera) {
+            // Let the action compute where the view ends up (it moves the camera
+            // instantly), then rewind and glide there - the same tween the sketch
+            // fly-in uses. Only cube clicks glide; the other callers of
+            // handleViewCubeAction (load, import, new project) still cut.
+            vcCam.finishAnimation();
+            const Camera before = vcCam;
+            handleViewCubeAction(static_cast<int>(vcAction));
+            const Camera after = vcCam;
+            vcCam = before;
+            vcCam.animateTo(after.getPosition(), after.getTarget(), after.getUp(),
+                            after.isOrthographic(), after.getOrthoSize(), 0.35f);
+        } else {
+            handleViewCubeAction(static_cast<int>(vcAction));
+        }
     }
 
     // Snap-grid corner widget - small square next to the ViewCube showing the

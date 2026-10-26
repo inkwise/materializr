@@ -112,6 +112,12 @@ private:
     /// changes elevation, clamped short of the poles. The up vector is held level
     /// with the ground (never rolls), so the horizon stays flat.
     void orbitLevel(float yawDelta, float pitchDelta);
+    /// Drop orthographic projection WITHOUT changing the picture: re-seat the
+    /// camera on its view ray at the distance where perspective frames the same
+    /// half-height as the ortho box. (Ortho ignores camera distance, so the
+    /// stored position can be anywhere along the ray; keeping it put and just
+    /// flipping the flag made the first orbit out of a sketch jump in scale.)
+    void leaveOrthographic();
 
 public:
 

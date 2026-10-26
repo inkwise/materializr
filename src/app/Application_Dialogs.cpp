@@ -519,6 +519,13 @@ void Application::renderSettings() {
                         changed = true;
                     }
                     ImGui::TextWrapped("%s", materializr::tr("Glide to the sketch plane so you can follow where the view went. Off: cut straight to it."));
+#if !defined(MZ_MOBILE)
+                    if (ImGui::Checkbox(materializr::tr("VSync (cap frame rate to the display)"), &m_vsync)) {
+                        if (m_window) m_window->setVSync(m_vsync);
+                        changed = true;
+                    }
+                    ImGui::TextWrapped("%s", materializr::tr("Off: render as fast as the machine allows. Uses more GPU/CPU and can tear."));
+#endif
 
                     // Invert the cube-drag → orbit direction.
                     if (ImGui::Checkbox(materializr::tr("Invert ViewCube drag direction"), &m_invertCubeDrag)) {

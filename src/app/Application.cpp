@@ -2016,6 +2016,7 @@ AppSettings Application::currentSettings() const {
     s.panButton = m_panButton;
     s.levelOrbit = m_viewport->getCamera().isLevelOrbit();
     s.animateCamera = m_animateCamera;
+    s.vsync = m_vsync;
     s.mouseSensitivity = m_viewport->getCamera().getMouseSensitivity();
     s.autosaveEnabled = m_autosaveEnabled;
     s.invertCubeDrag = m_invertCubeDrag;
@@ -2127,6 +2128,11 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_settingsPanButton = s.panButton;
     m_viewport->getCamera().setLevelOrbit(s.levelOrbit);
     m_animateCamera = s.animateCamera;
+    m_vsync = s.vsync;
+#if defined(MZ_MOBILE)
+    m_vsync = true;   // no setting on mobile; the frame cap is load-bearing there
+#endif
+    if (m_window) m_window->setVSync(m_vsync);
     m_viewport->getCamera().setMouseSensitivity(s.mouseSensitivity);
     m_autosaveEnabled = s.autosaveEnabled;
     m_invertCubeDrag = s.invertCubeDrag;
@@ -3458,6 +3464,13 @@ void Application::handleShortcuts() {
                 m_dimPopupConsumedEsc = false;
             } else if (m_sketchTool && m_sketchTool->getMode() == SketchToolMode::Dimension) {
                 m_sketchTool->onCancel();
+            } else if (m_sketchTool && m_sketchTool->getMode() == SketchToolMode::Spline &&
+                       m_sketchTool->splinePointsInProgress().size() >= 2) {
+                // A line chain keeps the segments already laid down and drops only
+                // the unfinished one; a spline's points are committed as it grows,
+                // so the matching behaviour is to finish it as-is rather than wipe
+                // the lot (discard with Backspace/Back/Cancel or Undo instead).
+                recordSketchMutation([&] { m_sketchTool->onConfirm(); });
             } else if (m_sketchTool && m_sketchTool->isPlacing()) {
                 m_sketchTool->onCancel();
             } else {
@@ -8757,7 +8770,9 @@ void Application::run() {
         // Sleeping out the remainder of a 60 Hz budget yields the main
         // thread to the OS every frame; where vsync already paces us the
         // remainder is ~0 and this is a no-op.
-        {
+        // Skipped when the user turned VSync off (desktop only; mobile has no
+        // such setting and keeps the cap).
+        if (m_vsync) {
             constexpr uint32_t kMinFrameMs = 16;
             const uint32_t spent = platformTicksMs() - frameLoopStartMs;
             if (spent < kMinFrameMs) platformSleepMs(kMinFrameMs - spent);

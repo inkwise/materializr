@@ -956,6 +956,18 @@ void Application::renderImTouchLayout() {
             // ✗ first (left), vertically centred on the FAB.
             const float topY = ImGui::GetCursorPosY();
             ImGui::SetCursorPosY(topY + (fabD - side) * 0.5f);
+            // ↶ Back (Backspace twin) while a line chain / spline is in progress.
+            if (toolRunning &&
+                ((m_sketchTool->getMode() == SketchToolMode::Line &&
+                  m_sketchTool->lineSegmentCount() >= 1) ||
+                 (m_sketchTool->getMode() == SketchToolMode::Spline &&
+                  !m_sketchTool->splinePointsInProgress().empty()))) {
+                if (touchui::iconButton("backSk", MZ_ICON_UNDO, side))
+                    sketchChainBack();
+                tip(materializr::tr("Remove the last segment and keep drawing"));
+                ImGui::SameLine(0.0f, 18.0f * s);
+                ImGui::SetCursorPosY(topY + (fabD - side) * 0.5f);
+            }
             if (touchui::iconButton("exitSk", MZ_ICON_DISCARD, side)) {
                 if (toolRunning)
                     m_sketchTool->onCancel();

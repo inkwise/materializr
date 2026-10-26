@@ -50,7 +50,7 @@ void Camera::orbitLevel(float yawDelta, float pitchDelta)
 {
     // Orbiting implies free 3D rotation, so drop the ortho lock if it was set
     // by entering a sketch. Pan and zoom intentionally keep ortho mode on.
-    m_orthographic = false;
+    leaveOrthographic();
 
     // Capture the view's CURRENT up before we reset it - a Top/Bottom ortho snap
     // stored the screen orientation there, and we need it to recover the azimuth
@@ -109,7 +109,7 @@ void Camera::orbit(float deltaX, float deltaY)
     if (m_levelOrbit) {
         orbitLevel(deltaX * s, deltaY * s);
     } else {
-        m_orthographic = false;
+        leaveOrthographic();
         trackballRotate(m_position, m_target, m_up,
                         -deltaX * s, -deltaY * s);
     }
@@ -121,7 +121,7 @@ void Camera::rotateAroundTarget(float yawRadians, float pitchRadians)
     if (m_levelOrbit) {
         orbitLevel(yawRadians, pitchRadians);
     } else {
-        m_orthographic = false;
+        leaveOrthographic();
         trackballRotate(m_position, m_target, m_up, -yawRadians, -pitchRadians);
     }
 }
@@ -379,6 +379,14 @@ void Camera::animateTo(glm::vec3 position, glm::vec3 target, glm::vec3 up,
     m_orthographic = false;
     m_position = a.p0;
     m_anim = a;
+}
+
+void Camera::leaveOrthographic()
+{
+    if (!m_orthographic) return;
+    const glm::vec3 dir = safeDirection(m_position, m_target, glm::vec3(0.0f, 0.0f, 1.0f));
+    m_position = m_target + dir * equivalentDistance(m_orthoSize, m_fov);
+    m_orthographic = false;
 }
 
 bool Camera::tick(float dtSeconds)
