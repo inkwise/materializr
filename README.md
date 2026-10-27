@@ -135,6 +135,46 @@ round-trip cleanly back into sketches, SVG and **DXF import**, and a
 compact native **`.mzr`** format (`.materializr` still opens) that stores
 bodies, sketches, and the full history.
 
+## Recent updates / 最近更新
+
+### 简体中文界面 / Simplified Chinese UI
+
+**中文** - Materializr 的界面现已支持简体中文（第七种界面语言）。在
+**设置 ▸ 外观 ▸ 界面语言** 中选择“简体中文”即可实时切换，无需重启；首次
+启动的语言选择页也会列出该选项。菜单、工具、提示与帮助文本均已翻译，并随
+应用内置 Noto Sans SC 子集字体，确保中文字形正常显示。
+
+**English** - The Materializr UI now ships in Simplified Chinese (the seventh
+interface language). Switch live under **Settings ▸ Appearance ▸ Interface
+language** - no restart needed; the first-run language page lists it too.
+Menus, tools, hints and help text are translated, and a bundled Noto Sans SC
+subset renders the CJK glyphs.
+
+### Android 弹窗修复 / Android dialog fixes
+
+**中文** - 修复了触屏布局中浮动操作弹窗的定位问题：
+
+- 移动 / 旋转 / 缩放面板不再按未缩放的固定偏移定位，而是按 UI 缩放比例把
+  右边缘锚定到 3D 视口右上角，并限制宽度；在手机上不会再有一半跑到屏幕外。
+- 这三个面板不再带 `NoMove`，并新增拖拽握把，可以随时拖回屏幕内。
+- 新建几何体、阵列、螺纹、放样、参考图、构造面/轴、STL 导入等 19 个弹窗
+  此前在 `Begin/End` 之外渲染，误以 ImGui 的隐式 `Debug##Default` 窗口为
+  锚点，因而出现在屏幕左侧；现在统一锚定到真实视口右上角。
+- 同时修正了 Push/Pull 与 Sketch 插件面板的同类定位问题。
+
+**English** - Fixed floating operation dialogs on touch layouts:
+
+- Move / Rotate / Scale panels now anchor their right edge to the 3D viewport's
+  top-right, with every offset and width scaled by `uiScale()`; they no longer
+  hang half off a phone screen.
+- They no longer set `NoMove` and gained a drag grip, so they can always be
+  dragged back into view.
+- 19 dialogs (primitive creation, pattern, thread, loft, reference image,
+  construction plane/axis, STL import, ...) were rendered outside any ImGui
+  window and anchored to the implicit `Debug##Default` fallback window, which
+  put them near the left edge; they now anchor to the real viewport.
+- Fixed the same placement issue in the Push/Pull and Sketch plugin panels.
+
 ## Known limitations
 
 A few rough edges are deliberate trade-offs for now, not bugs - worth knowing
@@ -248,5 +288,7 @@ this would exist without them.
 
 Ten typefaces ship for the sketch Text tool (JetBrains Mono, DejaVu Sans &
 Serif, Liberation Sans & Serif, Ubuntu, Comic Neue, Black Ops One, Anton,
-Pacifico), plus the Iconoir icon font for the UI. Full credits, copyrights
-and license texts: [`assets/fonts/FONT-CREDITS.md`](assets/fonts/FONT-CREDITS.md).
+Pacifico), plus the Iconoir icon font for the UI and a Noto Sans SC subset
+merged in as the CJK fallback for the Simplified Chinese interface. Full
+credits, copyrights and license texts:
+[`assets/fonts/FONT-CREDITS.md`](assets/fonts/FONT-CREDITS.md).
