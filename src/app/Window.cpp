@@ -714,7 +714,17 @@ void Window::handleFingerEvent(unsigned type, std::int64_t id, float nx, float n
     // body, viewport-side). Honors the user's double-click-time setting.
     {
         const std::uint32_t nowT = platformTicksMs();
+        // Only a tap that STARTED over the 3D canvas may drive viewport
+        // selection. A tap on a floating panel (an op dialog, the im-touch
+        // number pad, the model tree, ...) must not become a selection tap:
+        // the panel can shrink or close under the finger while the lift is
+        // still pending, exposing the canvas at the same screen position -
+        // the viewport then consumed the stale tap as an empty-space click
+        // and cleared the selection. That is how committing a value in the
+        // im-touch Move panel's number pad (its Enter folds the pad, the
+        // panel shortens) used to deselect the body and close the panel.
         const bool quickTap = !m_holdSelect && !m_movedBeyondHold && !m_suppressLeft &&
+                              m_touchOnCanvas &&
                               (nowT - m_downTicks) < 300u;
         if (quickTap) {
             // A genuine tap - drive the viewport SELECTION off this lift (not the

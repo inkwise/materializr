@@ -1177,12 +1177,20 @@ void Application::renderRotatePanel() {
 // left; Apply moves by (field - already applied) through the gizmo's commit path
 // (history, link detaching and sketch handling match a mouse drag, minus grid
 // snapping). Undo reverts the last Apply while it is still the latest step.
+// A checkbox switches the fields from that relative offset to ABSOLUTE target
+// coordinates for the same anchor the gizmo is drawn at; the readout above the
+// fields always shows the live anchor in user axes.
 // Standalone sketches keep their own panel (renderSketchMovePanel).
 void Application::renderMovePanel() {
     auto endSession = [&] {
         for (int i = 0; i < 3; ++i) m_multiMove[i] = m_multiMoveApplied[i] = 0.0f;
         m_moveSteps.clear();
         m_movePending = false;
+        // Keep the absolute-mode choice across sessions, but the next session
+        // must seed its fields from wherever the selection is by then.
+        m_moveAbsEdited = false;
+        m_moveAbsSync = true;
+        m_moveAbsSyncDelay = 0;
     };
     const bool isPlane = m_selection && m_selection->primaryType() == SelectionType::Plane;
     if (m_inSketchMode || !m_gizmo || m_gizmo->getMode() != GizmoMode::Translate ||
@@ -1212,6 +1220,56 @@ void Application::renderMovePanel() {
     ImGui::TextColored(materializr::accentText(), "%s", materializr::tr("Move"));
     ImGui::Separator();
 
+    // Current anchor: the gizmo's position is the body bbox centre (or the
+    // construction plane's origin), i.e. exactly the point the arrows are
+    // drawn at. Absolute mode reads it, and the readout is useful in relative
+    // mode too - it shows where the object actually is right now.
+    const glm::vec3 anchor = m_gizmo->getPosition();
+    const float current[3] = {anchor.x, anchor.z, anchor.y}; // user axes (Z up)
+    {
+        const auto& u = materializr::unitInfo(materializr::currentUnit());
+        ImGui::TextDisabled("%s", materializr::tr("Current position"));
+        // Wrapped: large coordinates in mm can outgrow the panel width.
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("X %.*f   Y %.*f   Z %.*f  %s",
+                           u.decimals, materializr::toDisplay(current[0]),
+                           u.decimals, materializr::toDisplay(current[1]),
+                           u.decimals, materializr::toDisplay(current[2]),
+                           u.suffix);
+        ImGui::PopStyleColor();
+    }
+
+    // A different selection is a different anchor; re-seed the absolute fields
+    // (the gizmo picks the new body up later this frame, hence the delay).
+    if (m_selection->revision() != m_moveAbsSelRev) {
+        m_moveAbsSelRev = m_selection->revision();
+        m_moveAbsEdited = false;
+        m_moveAbsSync = true;
+        m_moveAbsSyncDelay = 1;
+    }
+
+    bool absMode = m_moveAbsolute;
+    if (ImGui::Checkbox(materializr::tr("Absolute position"), &absMode)) {
+        m_moveAbsolute = absMode;
+        m_moveAbsEdited = false;
+        m_moveAbsSync = true;
+        m_moveAbsSyncDelay = 0;   // this frame's anchor is already the right one
+    }
+
+    // While not edited, the absolute fields follow the live anchor - so they
+    // show the real current position after a drag, a selection change or a
+    // completed move. Typing into a field stops the tracking until Apply/Undo.
+    if (m_moveAbsolute) {
+        if (m_moveAbsSync) {
+            if (m_moveAbsSyncDelay > 0) --m_moveAbsSyncDelay;
+            else
+                for (int i = 0; i < 3; ++i) m_multiMoveAbs[i] = current[i];
+        }
+    } else {
+        m_moveAbsSync = false;
+    }
+
     // User axes (Z up): user X = world X, user Y = world Z, user Z = world Y.
     const char* axisLabels[3] = {"X", "Y", "Z"};
     const ImVec4 axisColors[3] = {
@@ -1224,7 +1282,16 @@ void Application::renderMovePanel() {
         ImGui::TextColored(axisColors[i], "%s", axisLabels[i]);
         ImGui::SameLine(28);
         ImGui::SetNextItemWidth(95.0f);
-        materializr::lengthField("##mv", &m_multiMove[i]);
+        if (m_moveAbsolute) {
+            // Distinct id: the touch number pad keeps its entry buffer per
+            // ImGui id, so switching modes must not inherit a half-typed one.
+            if (materializr::lengthField("##mva", &m_multiMoveAbs[i])) {
+                m_moveAbsEdited = true;   // stop following the live anchor
+                m_moveAbsSync = false;
+            }
+        } else {
+            materializr::lengthField("##mv", &m_multiMove[i]);
+        }
         ImGui::SameLine(); ImGui::TextUnformatted(materializr::unitSuffix());
         ImGui::PopID();
     }
@@ -1233,7 +1300,11 @@ void Application::renderMovePanel() {
     float pending[3];
     bool anyNonZero = false;
     for (int i = 0; i < 3; ++i) {
-        pending[i] = m_multiMove[i] - m_multiMoveApplied[i];
+        // Relative: field - already applied. Absolute: target - live anchor,
+        // so the queue below still carries a world-space delta.
+        pending[i] = m_moveAbsolute
+                         ? m_multiMoveAbs[i] - current[i]
+                         : m_multiMove[i] - m_multiMoveApplied[i];
         anyNonZero |= std::abs(pending[i]) > 1e-4f;
     }
     const bool busy = m_gizmoDragging || !m_typedMoveQueue.empty() || m_movePending;
@@ -1242,10 +1313,18 @@ void Application::renderMovePanel() {
         m_movePendingBefore = m_history->currentStep();
         for (int i = 0; i < 3; ++i) {
             m_movePendingDelta[i] = pending[i];
-            m_multiMoveApplied[i] = m_multiMove[i];
+            if (!m_moveAbsolute) m_multiMoveApplied[i] = m_multiMove[i];
         }
         m_typedMoveQueue.push_back(glm::vec3(pending[0], pending[2], pending[1]));
         m_movePending = true;
+        if (m_moveAbsolute) {
+            // Fields already hold the target; start following the anchor again
+            // once the move lands (the delay skips the frame where the gizmo
+            // still reports the pre-move centre).
+            m_moveAbsEdited = false;
+            m_moveAbsSync = true;
+            m_moveAbsSyncDelay = 1;
+        }
         m_wakeFrames = std::max(m_wakeFrames, 5); // render-on-demand: let the commit run
     }
     ImGui::EndDisabled();
@@ -1259,9 +1338,17 @@ void Application::renderMovePanel() {
         m_moveSteps.pop_back();
         for (int n = st.after - st.before; n > 0 && m_history->canUndo(); --n)
             undoWithCascade();
-        for (int i = 0; i < 3; ++i) {
-            m_multiMove[i]        -= st.delta[i];
-            m_multiMoveApplied[i] -= st.delta[i];
+        if (m_moveAbsolute) {
+            // The absolute fields must show the restored position again; the
+            // gizmo re-centres on the undone body on the next frame.
+            m_moveAbsEdited = false;
+            m_moveAbsSync = true;
+            m_moveAbsSyncDelay = 1;
+        } else {
+            for (int i = 0; i < 3; ++i) {
+                m_multiMove[i]        -= st.delta[i];
+                m_multiMoveApplied[i] -= st.delta[i];
+            }
         }
         m_wakeFrames = std::max(m_wakeFrames, 5);
     }

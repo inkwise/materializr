@@ -1475,6 +1475,20 @@ private:
     bool m_movePending = false;
     int  m_movePendingBefore = -1;
     float m_movePendingDelta[3] = {0.0f, 0.0f, 0.0f};
+    // Absolute-position mode for the Move panel (im-touch and desktop alike):
+    // the three fields are TARGET coordinates in user axes (Z up, mm) for the
+    // same anchor the translate gizmo is drawn at, not a relative offset.
+    // m_moveAbsSync makes the fields track the live anchor (mode switched on,
+    // or the selection changed); m_moveAbsEdited stops that once the user has
+    // typed a target, and survives until Apply/Undo consumes it. The delay
+    // skips the one frame where the gizmo anchor still holds the pre-move
+    // value (typed moves are applied after the gizmo block in the same frame).
+    bool     m_moveAbsolute = false;
+    bool     m_moveAbsEdited = false;
+    bool     m_moveAbsSync = true;
+    int      m_moveAbsSyncDelay = 0;
+    float    m_multiMoveAbs[3] = {0.0f, 0.0f, 0.0f};
+    unsigned m_moveAbsSelRev = 0;
     bool m_gizmoAngleExact = false; // committing a typed angle: bypass drag snapping
     // Accumulated delta from drag start (translate only). Used so snap-to-grid
     // can snap the absolute position rather than each per-frame increment.

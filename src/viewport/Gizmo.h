@@ -27,6 +27,9 @@ public:
     GizmoMode getMode() const;
 
     void setPosition(glm::vec3 pos);
+    // World-space anchor the handles are drawn around. The Move panel reads it
+    // to show the selection's current X/Y/Z and to resolve absolute targets.
+    glm::vec3 getPosition() const { return m_position; }
     void setVisible(bool vis);
     bool isVisible() const;
 
