@@ -30,6 +30,16 @@ set(OCCT_LIB "${OCCT_ROOT}/lib")
 
 # ── ImGui (docking) + GLM, same versions as the desktop build ────────────────
 include(FetchContent)
+# Offline / on-device builds can point FetchContent at local checkouts instead
+# of letting it clone from GitHub at configure time:
+#   MATERIALIZR_IMGUI_DIR=~/imgui MATERIALIZR_GLM_DIR=~/glm ./gradlew assembleDebug
+# The directories must be checked out at the tags below (or compatible).
+if(DEFINED ENV{MATERIALIZR_IMGUI_DIR} AND EXISTS "$ENV{MATERIALIZR_IMGUI_DIR}/CMakeLists.txt")
+    set(FETCHCONTENT_SOURCE_DIR_IMGUI "$ENV{MATERIALIZR_IMGUI_DIR}" CACHE PATH "" FORCE)
+endif()
+if(DEFINED ENV{MATERIALIZR_GLM_DIR} AND EXISTS "$ENV{MATERIALIZR_GLM_DIR}/CMakeLists.txt")
+    set(FETCHCONTENT_SOURCE_DIR_GLM "$ENV{MATERIALIZR_GLM_DIR}" CACHE PATH "" FORCE)
+endif()
 # Pinned to a release TAG, not the `docking` branch head and not a commit on it
 # - see the rationale in the top-level CMakeLists.txt (docking is rebased, which
 # orphans branch commits and breaks clean builds). Keep this in step with that

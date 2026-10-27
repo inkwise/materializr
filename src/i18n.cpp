@@ -43,6 +43,10 @@ const Cat kCats[] = {
     { kFrCatalogue,   kFrCount,   "Fran\xc3\xa7""ais",  "French"     },
     { kDeCatalogue,   kDeCount,   "Deutsch",     "German"     },
     { kItCatalogue,   kItCount,   "Italiano",    "Italian"    },
+    // Escaped UTF-8 for the same MSVC reason as "Espa\xc3\xb1ol" above.
+    // The byte string spells the native name in Chinese.
+    { kZhCatalogue,   kZhCount,   "\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87",
+                                  "Chinese (Simplified)" },
 };
 static_assert(sizeof(kCats) / sizeof(kCats[0]) ==
                   static_cast<std::size_t>(Lang::COUNT),

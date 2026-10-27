@@ -12,6 +12,14 @@ void platformSleepMs(std::uint32_t ms) {
     SDL_Delay(ms);
 }
 
+std::uint64_t platformTicksNs() {
+    return SDL_GetTicksNS();
+}
+
+void platformSleepNs(std::uint64_t ns) {
+    SDL_DelayNS(ns);
+}
+
 std::string platformPrefPath() {
     char* base = SDL_GetPrefPath("Materializr", "Materializr");
     if (!base) return {};

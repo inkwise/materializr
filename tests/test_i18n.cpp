@@ -12,9 +12,10 @@
 //      renders as a blank or a box. ImGui 1.92 rasterises on demand, so there
 //      is no range to check against -- the sound rule is that a translation
 //      must not introduce a character its ENGLISH key does not already rely on,
-//      unless that character is plain Latin-1 (which the font certainly has).
-//      English already uses an em dash, an ellipsis and a bullet, so those are
-//      proven safe; a translation reaching for, say, a CJK quote would not be.
+//      unless that character is plain Latin-1 (which the font certainly has),
+//      one of the proven typographic characters English already uses, or a CJK
+//      character covered by the bundled MaterializrSansSC-UI.ttf fallback.
+//      Chinese is the one language that legitimately introduces CJK glyphs.
 
 #include "i18n.h"
 #include "i18n_catalogue.h"
@@ -45,6 +46,8 @@ std::vector<Catalogue> allCatalogues() {
         { "French",     materializr::kFrCatalogue, materializr::kFrCount, Lang::French     },
         { "German",     materializr::kDeCatalogue, materializr::kDeCount, Lang::German     },
         { "Italian",    materializr::kItCatalogue, materializr::kItCount, Lang::Italian    },
+        { "Chinese (Simplified)",
+          materializr::kZhCatalogue, materializr::kZhCount, Lang::Chinese },
     };
 }
 
@@ -65,7 +68,7 @@ unsigned decodeUtf8(const char* s, int& len) {
 // Latin-1 and Latin Extended-A are taken as always available: every accented
 // letter any of the shipped languages needs lives there, and the bundled
 // JetBrains Mono covers them.
-bool alwaysAvailable(unsigned cp) {
+bool alwaysAvailable(unsigned cp, Lang lang) {
     if (cp <= 0x017F) return true;   // Latin-1 + Latin Extended-A
     // Typographic characters the ENGLISH UI already uses somewhere, so the
     // font provably renders them; a translation may use them freely even where
@@ -77,9 +80,16 @@ bool alwaysAvailable(unsigned cp) {
     case 0x2022: case 0x2026:   // bullet, ellipsis
     case 0x2192: case 0x25CF: case 0x26A0: case 0x0394:   // arrow, dot, warn, delta
         return true;
-    default:
-        return false;
     }
+    // Chinese is the deliberate exception: the UI merges a CJK font that
+    // covers these ranges. Keep them in step with what
+    // tools/build_cjk_font.py bakes into MaterializrSansSC-UI.ttf.
+    if (lang == Lang::Chinese) {
+        if (cp >= 0x3000 && cp <= 0x303F) return true;   // CJK punctuation
+        if (cp >= 0x4E00 && cp <= 0x9FFF) return true;   // unified ideographs
+        if (cp >= 0xFF00 && cp <= 0xFFEF) return true;   // fullwidth forms
+    }
+    return false;
 }
 
 std::set<unsigned> codePoints(const char* s) {
@@ -115,6 +125,18 @@ TEST(I18n, TranslatesAKnownString) {
     EXPECT_STREQ(tr("Fillet"), "Verrundung");
     setLanguage(Lang::French);
     EXPECT_STREQ(tr("Fillet"), "Cong\xc3\xa9");        // Congé
+    // Chinese, escaped so the literals stay ASCII for MSVC without /utf-8.
+    setLanguage(Lang::Chinese);
+    EXPECT_STREQ(tr("Fillet"), "\xe5\x9c\x86\xe8\xa7\x92"); // Fillet
+    EXPECT_STREQ(tr("Sketch"), "\xe8\x8d\x89\xe5\x9b\xbe"); // Sketch
+    EXPECT_STREQ(tr("File"),   "\xe6\x96\x87\xe4\xbb\xb6"); // File
+}
+
+TEST(I18n, ChineseNativeNameIsReadable) {
+    EXPECT_STREQ(languageNativeName(static_cast<int>(Lang::Chinese)),
+                 "\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87"); // native name
+    EXPECT_STREQ(languageEnglishName(static_cast<int>(Lang::Chinese)),
+                 "Chinese (Simplified)");
 }
 
 TEST(I18n, UnknownStringFallsBackToEnglish) {
@@ -206,7 +228,7 @@ TEST(I18n, NoTranslationDemandsAGlyphEnglishDoesNot) {
         for (int i = 0; i < c.n; ++i) {
             const std::set<unsigned> en = codePoints(c.rows[i].en);
             for (unsigned cp : codePoints(c.rows[i].tr)) {
-                if (alwaysAvailable(cp)) continue;
+                if (alwaysAvailable(cp, c.lang)) continue;
                 EXPECT_TRUE(en.count(cp) > 0)
                     << c.name << ": U+" << std::hex << cp << std::dec
                     << " appears in the translation of \"" << c.rows[i].en

@@ -25,6 +25,11 @@ Font License 1.1, the Ubuntu Font Licence 1.0, or the Bitstream Vera/Arev
 permissive license. Per-font copyright notices, the picker mapping, and the full
 license texts are in `assets/fonts/FONT-CREDITS.md` and `assets/fonts/licenses/`.
 
+The UI also ships a 2.2 MB GB2312 subset of Noto Sans SC
+(`MaterializrSansSC-UI.ttf`, SIL OFL 1.1), merged into the ImGui font as the
+CJK fallback for the Chinese interface. It is not offered by the Text tool; its
+copyright and license are in `assets/fonts/licenses/NotoSansSC-OFL.txt`.
+
 Note: "Times (Liberation)" and "Arial (Liberation)" are the OFL Liberation fonts,
 which are *metric-compatible* stand-ins for the proprietary Microsoft fonts - the
 real Times New Roman / Arial are NOT bundled.

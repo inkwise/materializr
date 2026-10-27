@@ -1,6 +1,8 @@
 #pragma once
 #include <imgui.h>
 #include <algorithm>
+#include "../ui_scale.h"
+#include "UiTheme.h"
 
 namespace materializr {
 
@@ -30,6 +32,35 @@ inline void opDialogDragGrip(float s) {
     const float r = 1.5f * s, gap = 5.5f * s;
     for (int i = -1; i <= 1; ++i)
         dl->AddCircleFilled(ImVec2(cx + i * gap, cy), r, col);
+}
+
+// Place the NEXT window at the top-right of the host rect, fully inside it at
+// any uiScale. The op dialogs used to anchor their LEFT edge at
+// `hostRight - 280` while being sized `uiSz(280, 0)`: on a phone (uiScale up
+// to 2.5) the scaled window grew ~400px past the right edge, so only half of
+// it was reachable. Some were also rendered outside any Begin(), where
+// ImGui::GetWindowPos() reports the implicit "Debug##Default" fallback window
+// (400x400 at 60,60) - they opened near the LEFT edge instead.
+//
+// Anchor the RIGHT edge with a pivot instead, scale every distance, and clamp
+// the width to the host so the whole dialog always fits. ImGuiCond_Appearing:
+// the seed only runs when the window appears, so the user can drag it
+// afterwards (callers must NOT set ImGuiWindowFlags_NoMove).
+inline void opDialogPlaceTopRight(float hostX, float hostY, float hostW,
+                                  float logicalWidth,
+                                  float topInsetLogical = 50.0f) {
+    const float s = uiScale();
+    const float margin = 12.0f * s;
+    float top = hostY + topInsetLogical * s;
+    // im-touch floats its logo/menu chips over a full-screen viewport, so the
+    // band above viewportTopChromeBottom() is occupied.
+    const float chromeBottom = viewportTopChromeBottom();
+    if (chromeBottom > 0.0f) top = std::max(top, chromeBottom + 8.0f * s);
+    const float avail = std::max(1.0f, hostW - 2.0f * margin);
+    const float width = std::max(1.0f, std::min(logicalWidth * s, avail));
+    ImGui::SetNextWindowPos(ImVec2(hostX + hostW - margin, top),
+                            ImGuiCond_Appearing, ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_Appearing);
 }
 
 // Keep a floating op dialog fully inside its host viewport window. The dialogs

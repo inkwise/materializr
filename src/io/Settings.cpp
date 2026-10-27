@@ -126,6 +126,7 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
     readBool(kv, "photoReflections",     s.photoReflections);
     readIntClamped(kv, "msaaSamples",    s.msaaSamples, 0, 8);
     readIntClamped(kv, "meshQuality",    s.meshQuality, 0, 3);
+    readIntClamped(kv, "frameRateMode",  s.frameRateMode, 0, 4);
     readFloat(kv, "selectionLineWidth",  s.selectionLineWidth);
     readFloat(kv, "sketchLineWidth",     s.sketchLineWidth);
     readFloat(kv, "sketchGridOpacity",   s.sketchGridOpacity);
@@ -210,7 +211,8 @@ void applyKv(const std::map<std::string, std::string>& kv, AppSettings& s) {
 
     readIntClamped(kv, "inferenceLevel", s.inferenceLevel, 0, 3);
     // -1 is meaningful here ("never chosen"), so the floor is -1, not 0.
-    readIntClamped(kv, "language", s.language, -1, 5);
+    // Upper bound = Lang::COUNT - 1; keep in sync with src/i18n.h (6 = Chinese).
+    readIntClamped(kv, "language", s.language, -1, 6);
     readBool(kv, "showInferenceToolbarToggle", s.showInferenceToolbarToggle);
     readBool(kv, "exportGreyFills", s.exportGreyFills);
     readBool(kv, "showSelectionMeasurements", s.showSelectionMeasurements);
@@ -453,6 +455,7 @@ bool SettingsIO::save(const std::string& path, const AppSettings& s) {
     ofs << "photoReflections = "    << (s.photoReflections ? "true" : "false") << "\n";
     ofs << "msaaSamples = "         << s.msaaSamples         << "\n";
     ofs << "meshQuality = "         << s.meshQuality         << "\n";
+    ofs << "frameRateMode = "       << s.frameRateMode       << "\n";
     ofs << "selectionLineWidth = "  << s.selectionLineWidth  << "\n";
     ofs << "sketchLineWidth = "     << s.sketchLineWidth     << "\n";
     ofs << "sketchGridOpacity = "       << s.sketchGridOpacity     << "\n";
@@ -583,6 +586,7 @@ bool SettingsIO::exportJson(const std::string& path, const AppSettings& s) {
     ofs << "  \"photoReflections\": "        << b(s.photoReflections)   << ",\n";
     ofs << "  \"msaaSamples\": "             << s.msaaSamples           << ",\n";
     ofs << "  \"meshQuality\": "             << s.meshQuality           << ",\n";
+    ofs << "  \"frameRateMode\": "           << s.frameRateMode         << ",\n";
     ofs << "  \"selectionLineWidth\": "      << s.selectionLineWidth    << ",\n";
     ofs << "  \"sketchLineWidth\": "         << s.sketchLineWidth       << ",\n";
     ofs << "  \"sketchGridOpacity\": "       << s.sketchGridOpacity     << ",\n";

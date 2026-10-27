@@ -106,6 +106,10 @@ struct AppSettings {
     bool  photoReflections = true; // metals reflect a photographed studio, not the drawn one
     int   msaaSamples    = 4;     // viewport anti-aliasing: 0=off, 2, 4, 8
     int   meshQuality    = 1;     // tessellation density: 0=Low,1=Medium,2=High,3=Ultra
+    // Render-loop frame-rate tier (Settings > Rendering): 0=60, 1=90, 2=120,
+    // 3=165, 4=185 fps. The display refresh is the real ceiling; 185 means
+    // "no additional cap" on every current panel.
+    int   frameRateMode  = 4;
     float selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines (1..10)
     float sketchLineWidth = 2.5f;    // px width of sketch geometry - thicker reads better over the grid (1..6)
     float sketchGridOpacity = 0.55f; // opacity of the sketch-plane grid (0..1)
@@ -218,9 +222,9 @@ struct AppSettings {
 
     // --- Language ---
     // UI language index; mirrors materializr::Lang (0 = English, then Spanish,
-    // Portuguese, French, German, Italian). Kept as an int so this header does
-    // not depend on i18n.h. -1 means "never chosen", which is what makes the
-    // setup wizard ask on first run.
+    // Portuguese, French, German, Italian, Chinese). Kept as an int so this
+    // header does not depend on i18n.h. -1 means "never chosen", which is what
+    // makes the setup wizard ask on first run.
     int  language = -1;
     // Display unit for every length readout and input: materializr::LengthUnit
     // (0 mm, 1 cm, 2 m, 3 in, 4 ft). An int for the same reason language is -

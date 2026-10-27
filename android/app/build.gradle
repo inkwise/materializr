@@ -28,7 +28,7 @@ android {
     // page alignment (required by Play for Android 15+). r26's prebuilt STL was
     // 4 KB. OCCT is still cross-built with r26 (its .so are 16 KB via the linker
     // flag in setup-deps.sh) and links fine against the r28-built app + STL.
-    ndkVersion '28.2.13676358'
+    ndkVersion '29.0.14206865'
 
     defaultConfig {
         // Published package name. The public/open-source default is

@@ -10,7 +10,12 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.util.Log;
+import android.view.Display;
+import android.view.Surface;
+import android.view.SurfaceHolder;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 
 import java.io.File;
@@ -30,6 +35,9 @@ import org.libsdl.app.SDLActivity;
 public class MaterializrActivity extends SDLActivity {
 
     private static MaterializrActivity sInstance;
+    // 0 = highest supported display rate; otherwise the Settings > Rendering
+    // tier (60/90/120/165/185). Written from native via setFrameRateLimit.
+    private static volatile int sFrameRateLimit = 0;
 
     // ---- Storage Access Framework + share bridge -----------------------------
     // The native file layer (FileDialogs.cpp) drives these via JNI and polls
@@ -450,12 +458,106 @@ public class MaterializrActivity extends SDLActivity {
         }
     }
 
+    // Switch to the supported display mode closest to the requested cap.
+    // Without this the window commonly stays at 60 Hz even on a 120/165 Hz
+    // phone. Surface.setFrameRate (API 30+) is the actual hint; the native
+    // render loop also caps itself, so the selected tier holds even when the
+    // system ignores the request. Some OEM skins additionally require the app
+    // in their high-refresh-rate allowlist.
+    private void applyFrameRateLimit() {
+        Display display = getWindowManager().getDefaultDisplay();
+        Display.Mode[] modes = display.getSupportedModes();
+        float max = 0f;
+        Display.Mode maxMode = null;
+        StringBuilder modeList = new StringBuilder();
+        for (Display.Mode m : modes) {
+            float r = m.getRefreshRate();
+            if (modeList.length() > 0) modeList.append(", ");
+            modeList.append(m.getModeId()).append('@').append(r);
+            if (r > max) {
+                max = r;
+                maxMode = m;
+            }
+        }
+
+        int requested = sFrameRateLimit;
+        Display.Mode chosen = maxMode;
+        if (requested > 0) {
+            // Prefer the lowest supported rate at or above the request; a
+            // lower mode would make the cap unreachable. If none is high
+            // enough (e.g. 185 on a 165 panel), use the panel maximum.
+            float above = Float.MAX_VALUE;
+            for (Display.Mode m : modes) {
+                float r = m.getRefreshRate();
+                if (r >= requested && r < above) {
+                    above = r;
+                    chosen = m;
+                }
+            }
+        }
+        if (chosen == null) return;
+        float target = chosen.getRefreshRate();
+
+        WindowManager.LayoutParams lp = getWindow().getAttributes();
+        // Do NOT pin preferredDisplayModeId / use CHANGE_FRAME_RATE_ALWAYS
+        // here: on ColorOS that combination made the system fall back to a
+        // 90 Hz mode instead of switching to 165. The supported display rate
+        // is the highest we can ask for; a per-app 165 Hz cap is a system
+        // policy (the OEM high-refresh allowlist), not something an app can
+        // override.
+        lp.preferredRefreshRate = target;
+        getWindow().setAttributes(lp);
+
+        boolean surfaceApplied = false;
+        if (Build.VERSION.SDK_INT >= 30) {
+            Surface surface = getNativeSurface();
+            if (surface != null && surface.isValid()) {
+                surface.setFrameRate(
+                    target, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+                surfaceApplied = true;
+            }
+        }
+        Log.i("Materializr", "frame rate request " + requested + " -> mode "
+              + chosen.getModeId() + " @ " + target + " Hz (current "
+              + display.getMode().getModeId() + "@" + display.getRefreshRate()
+              + ", surface=" + surfaceApplied + "); modes: " + modeList);
+    }
+
+    // Called from native (Settings > Rendering). Safe from the SDL thread.
+    public static void setFrameRateLimit(int fps) {
+        sFrameRateLimit = fps;
+        MaterializrActivity a = sInstance;
+        if (a != null) a.runOnUiThread(a::applyFrameRateLimit);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         sInstance = this;
         // No storage-permission prompt: file open/save use the system SAF picker
         // (per-URI access), and export sharing uses the FileProvider.
+        applyFrameRateLimit();
+        // onCreate/onResume can run before the SDL Surface exists; Surface
+        // frame-rate requests are silently ignored then. Re-apply once the
+        // surface is actually created/changed.
+        if (mSurface != null) {
+            mSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
+                @Override public void surfaceCreated(SurfaceHolder holder) {
+                    applyFrameRateLimit();
+                }
+                @Override public void surfaceChanged(SurfaceHolder holder,
+                                                     int format, int width, int height) {
+                    applyFrameRateLimit();
+                }
+                @Override public void surfaceDestroyed(SurfaceHolder holder) { }
+            });
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applyFrameRateLimit();
     }
 
     @Override
@@ -467,19 +569,26 @@ public class MaterializrActivity extends SDLActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) applyWindowMode();
+        if (hasFocus) {
+            applyWindowMode();
+            applyFrameRateLimit();
+        }
     }
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         applyWindowMode();
+        // A display-mode switch itself fires a configuration change; re-assert
+        // the tier so the window attributes do not fall back to the default.
+        applyFrameRateLimit();
     }
 
     @Override
     public void onMultiWindowModeChanged(boolean isInMultiWindowMode, Configuration newConfig) {
         super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig);
         applyWindowMode();
+        applyFrameRateLimit();
     }
 
     @Override

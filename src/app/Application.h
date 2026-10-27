@@ -266,6 +266,11 @@ private:
     void renderRotatePanel();
     void renderMovePanel();
     void renderScalePanel();
+    // Place the next floating op dialog (move/rotate/scale, pattern, thread,
+    // loft, primitive, ...) at the top-right of the 3D viewport, scaled and
+    // clamped so it stays fully on screen on a phone. `logicalWidth` is the
+    // design width before uiScale().
+    void placeOpDialogTopRight(float logicalWidth);
     void handleToolAction(int action);
     void handleShortcuts();
     // Is the (rebindable) shortcut `a` pressed this frame? Exact-modifier match
@@ -1276,6 +1281,7 @@ private:
     bool  m_photoReflections = true; // metals reflect a photographed studio
     int   m_msaaSamples = 4;        // viewport anti-aliasing: 0=off, 2, 4, 8
     int   m_meshQuality = 1;        // tessellation density: 0=Low..3=Ultra
+    int   m_frameRateMode = 4;      // Settings > Rendering: 0=60..4=185 fps
     float m_selectionLineWidth = 3.0f; // px width of highlighted edges/body outlines
     float m_sketchLineWidth = 2.5f;    // px width of sketch geometry over the grid
     float m_sketchGridOpacity = 0.55f; // opacity of the sketch-plane grid (0..1)
@@ -1325,6 +1331,9 @@ private:
     bool  m_meshShowWireframe = true;
     // Apply m_light*/m_msaaSamples/m_selectionLineWidth to the renderer + viewport.
     void applyRenderingSettings();
+    // Apply m_frameRateMode to the Android display refresh request (the render
+    // loop's own cap reads m_frameRateMode directly).
+    void applyFrameRateMode();
     // Map m_meshQuality to OCCT tessellation parameters.
     void meshQualityParams(float& deflection, float& angularDeflection) const;
 

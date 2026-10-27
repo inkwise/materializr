@@ -15,6 +15,13 @@ if [ ${#libs[@]} -eq 0 ]; then
     echo "No OCCT libraries found in $PREFIX/lib - build OCCT first." >&2
     exit 1
 fi
+
+# OCCT's Android build emits SONAMEs with a trailing dot ("libTKBO.so.") while
+# the installed files are "libTKBO.so", which makes Android's linker fail at
+# dlopen. Patch the installed libs in place before staging; see the script's
+# header for why this is safe for the 16 KB segment alignment.
+python3 "$(dirname "$0")/scripts/fix_occt_soname.py" "${libs[@]}"
+
 cp -v "${libs[@]}" "$DEST"/
 echo "Copied ${#libs[@]} OCCT toolkits to $DEST"
 

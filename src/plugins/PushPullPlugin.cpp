@@ -1,6 +1,7 @@
 #include "ui/LengthField.h"
 #include "ui/StepperRow.h"
 #include "ui/UiTheme.h"
+#include "ui/OpDialogGrip.h"
 #include "ui_scale.h"
 #include "../touch_mode.h"
 #include "../plugin/PluginMacro.h"
@@ -118,12 +119,15 @@ public:
                 ? "PUSH/PULL - Positive = extrude, Negative = cut. Drag the arrow, then Confirm / Cancel."
                 : "PUSH/PULL - Positive = extrude, Negative = cut. Enter to confirm, Escape to cancel.");
 
-        ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 260,
-                                        ImGui::GetWindowPos().y + 50));
-        ImGui::SetNextWindowSize(materializr::uiSz(240, 0));
+        // Rendered from PluginContext, i.e. outside any ImGui window: anchor to
+        // the main work area, not GetWindowPos() (that is ImGui's implicit
+        // fallback window, which parked this panel near the top-left).
+        const ImGuiViewport* pvp = ImGui::GetMainViewport();
+        materializr::opDialogPlaceTopRight(pvp->WorkPos.x, pvp->WorkPos.y,
+                                           pvp->WorkSize.x, 240.0f);
         ImGui::Begin("##PushPullInput", nullptr,
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoSavedSettings |
             ImGuiWindowFlags_AlwaysAutoResize);
 
         ImGui::Text("%s", materializr::trFormat("Distance (%s)", materializr::unitSuffix()).c_str());

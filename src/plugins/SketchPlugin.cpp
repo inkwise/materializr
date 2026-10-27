@@ -116,11 +116,18 @@ public:
                     : "SKETCH MODE - Draw shapes. Enter to finish, Escape to cancel.");
         }
 
-        // Dimension input when placing
+        // Dimension input when placing. Anchored to the bottom-right of the
+        // WORK AREA with scaled sizes: renderOverlay runs outside any ImGui
+        // window, so GetWindowPos() was the implicit fallback window and the
+        // unscaled -200 put the well near the middle-left of a phone.
         if (m_sketchTool->hasPreview()) {
-            ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 200,
-                                            ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - 60));
-            ImGui::SetNextWindowSize(uiSz(180, 0));
+            const ImGuiViewport* pvp = ImGui::GetMainViewport();
+            const float margin = 12.0f * uiScale();
+            ImGui::SetNextWindowPos(
+                ImVec2(pvp->WorkPos.x + pvp->WorkSize.x - margin,
+                       pvp->WorkPos.y + pvp->WorkSize.y - margin),
+                ImGuiCond_Appearing, ImVec2(1.0f, 1.0f));
+            ImGui::SetNextWindowSize(uiSz(180, 0), ImGuiCond_Appearing);
             ImGui::Begin("##SketchDim", nullptr,
                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);

@@ -1,4 +1,5 @@
 #include "ui/UiTheme.h"
+#include "ui/OpDialogGrip.h"
 #include "ui/StepperRow.h"
 #include "i18n.h"
 #include "app/ui_layout_bridge.h"
@@ -217,8 +218,8 @@ void Application::renderSettings() {
                         int lang = (m_language < 0) ? 0 : m_language;
                         // Native names, so the list stays readable no matter
                         // what the UI is currently set to.
-                        const char* names[8];
-                        const int n = std::min(materializr::languageCount(), 8);
+                        const char* names[16];
+                        const int n = std::min(materializr::languageCount(), 16);
                         for (int i = 0; i < n; ++i)
                             names[i] = materializr::languageNativeName(i);
                         if (ImGui::Combo(materializr::tr("Interface language"), &lang, names, n)) {
@@ -257,7 +258,9 @@ void Application::renderSettings() {
                     // can never combine into an inconsistent state. The combo
                     // order matches the enum's numeric values.
                     int layoutMode = static_cast<int>(m_uiLayout);
-                    const char* layoutNames[] = { "Classic", "Modern", "im-touch" };
+                    const char* layoutNames[] = {
+                        materializr::tr("Classic"), materializr::tr("Modern"),
+                        materializr::tr("im-touch") };
                     if (ImGui::Combo(materializr::tr("Interface"), &layoutMode, layoutNames, 3)) {
                         m_uiLayout = static_cast<UiLayout>(layoutMode);
                         changed = true;
@@ -562,6 +565,24 @@ void Application::renderSettings() {
 
                 // ── Rendering ─────────────────────────────────────────────
                 if (ImGui::BeginTabItem(materializr::tr("Rendering###Rendering"))) {
+                    // Frame-rate tier: bounds the render loop; the display
+                    // refresh is the real ceiling. 185 is effectively uncapped
+                    // on current panels. Applies live, like the AA combo.
+                    const char* fpsItems[] = { "60 fps", "90 fps", "120 fps",
+                                               "165 fps", "185 fps" };
+                    int fpsMode = m_frameRateMode;
+                    if (fpsMode < 0) fpsMode = 0;
+                    if (fpsMode > 4) fpsMode = 4;
+                    if (ImGui::Combo(materializr::tr("Frame rate"), &fpsMode,
+                                     fpsItems, 5)) {
+                        m_frameRateMode = fpsMode;
+                        applyFrameRateMode();
+                        changed = true;
+                    }
+                    ImGui::SetItemTooltip("%s", materializr::tr(
+                        "Upper limit for the render loop. The display's refresh rate is the real ceiling; 185 means no extra cap."));
+                    ImGui::Spacing();
+
                     ImGui::SeparatorText(materializr::tr("Lighting"));
                     // Lighting - tame the harsh single-direction shadows.
                     ImGui::TextWrapped("%s", materializr::tr("Lighting controls how evenly the model is lit."));
@@ -1004,6 +1025,35 @@ void Application::renderUpdatePopup() {
     }
 }
 
+// ─── Floating op-dialog placement ───────────────────────────────────────────
+// All the tool dialogs (Move/Rotate/Scale type-ins, pattern, thread, loft,
+// primitive, ...) open in the top-right of the 3D viewport. Resolve the ONE
+// host rect here instead of trusting ImGui::GetWindowPos(): the dialogs are
+// rendered at different points of the frame, and several (primitive, pattern,
+// thread, loft, ...) run AFTER the viewport's End - there GetWindowPos()
+// reports ImGui's implicit "Debug##Default" fallback window (400x400 at
+// 60,60), which put them near the LEFT edge of a phone screen. The viewport
+// widgets themselves are also sized with uiSz(), so the right-edge inset must
+// be scaled: an unscaled -280 left half the dialog hanging off the screen at
+// uiScale 2.5.
+void Application::placeOpDialogTopRight(float logicalWidth) {
+    float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    if (!classicLayout() && m_touchVpW > 0.0f) {
+        // Modern / im-touch: the pinned center rect between rail and panels.
+        x = m_touchVpX; y = m_touchVpY; w = m_touchVpW; h = m_touchVpH;
+    } else if (m_viewportWinW > 0.0f) {
+        // Classic: the docked Viewport window (cached by renderViewport).
+        x = m_viewportWinX; y = m_viewportWinY;
+        w = m_viewportWinW; h = m_viewportWinH;
+    } else {
+        x = vp->WorkPos.x; y = vp->WorkPos.y;
+        w = vp->WorkSize.x; h = vp->WorkSize.y;
+    }
+    (void)h;
+    materializr::opDialogPlaceTopRight(x, y, w, logicalWidth);
+}
+
 // Rotate type-in panel. Appears as soon as the Rotate gizmo is active (same
 // pattern as renderScalePanel), for one item or many - bodies, sketches and
 // construction planes alike. The gizmo's drag snaps to 15 deg (45 deg soft), so
@@ -1041,13 +1091,12 @@ void Application::renderRotatePanel() {
         }
     }
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250,
-                                    ImGui::GetWindowPos().y + 50));
-    ImGui::SetNextWindowSize(uiSz(230, 0));
+    placeOpDialogTopRight(230.0f);
     ImGui::Begin("##RotatePanel", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_AlwaysAutoResize);
+    opDialogDragGrip(uiScale());
 
     ImGui::TextColored(materializr::accentText(), "%s", materializr::tr("Rotate (degrees)"));
     ImGui::Separator();
@@ -1153,13 +1202,12 @@ void Application::renderMovePanel() {
         }
     }
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250,
-                                    ImGui::GetWindowPos().y + 50));
-    ImGui::SetNextWindowSize(uiSz(230, 0));
+    placeOpDialogTopRight(230.0f);
     ImGui::Begin("##MovePanel", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_AlwaysAutoResize);
+    opDialogDragGrip(uiScale());
 
     ImGui::TextColored(materializr::accentText(), "%s", materializr::tr("Move"));
     ImGui::Separator();
@@ -1268,13 +1316,12 @@ void Application::renderScalePanel() {
         } catch (...) {}
     }
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 250,
-                                    ImGui::GetWindowPos().y + 50));
-    ImGui::SetNextWindowSize(uiSz(230, 0));
+    placeOpDialogTopRight(230.0f);
     ImGui::Begin("##ScalePanel", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_AlwaysAutoResize);
+    opDialogDragGrip(uiScale());
 
     const bool mm = (m_scaleUnitMode == ScaleUnitMode::Millimeter);
     // Two calls, not one format string with a conditional: TextColored is
@@ -1545,10 +1592,7 @@ void Application::renderInteractionsPanel() {
 void Application::renderSketchPatternPopup() {
     if (!m_sketchPatternActive) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(280, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(280.0f);
     const char* title = (m_sketchPatternKind == PatternKind::Linear)
                             ? "Sketch Linear Pattern"
                             : "Sketch Circular Pattern";
@@ -1723,10 +1767,7 @@ void Application::renderPatternPanel() {
 
     // Same anchor-then-drag pattern as Edit Diameter - first appearance only,
     // then the user can move the popup somewhere convenient.
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(280, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(280.0f);
     const char* title = (m_patternKind == PatternKind::Linear)
                             ? "Linear Pattern"
                             : "Circular Pattern";
@@ -1998,10 +2039,7 @@ void Application::renderThreadPanel() {
     }
     if (!m_threadActive) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(280, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(280.0f);
     ImGui::Begin("Thread", nullptr,
         ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings |
@@ -2181,10 +2219,7 @@ void Application::renderLoftPanel() {
 
     // Anchor near the top-right on first open; subsequent frames let the user
     // drag the popup somewhere convenient (same pattern as Pattern panel).
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(280, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(280.0f);
     ImGui::Begin("Loft", nullptr,
         ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings |
@@ -2647,10 +2682,7 @@ void Application::renderMeshTracePanel() {
     }
     if (planeId < 0 || !m_document->getMeshTrace(planeId)) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 300,
-                                   ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(300, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(300.0f);
     ImGui::Begin("Mesh Trace", nullptr,
                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
                  ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize);
@@ -2671,10 +2703,7 @@ void Application::renderMeshTracePanel() {
 void Application::renderMeshTraceSetupDialog() {
     if (!m_meshTraceSetupActive || !m_document) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 300,
-                                   ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(300, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(300.0f);
     ImGui::Begin("Set Up Tracing Planes", nullptr,
                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
                  ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize);
@@ -2773,10 +2802,7 @@ void Application::renderRefImagePanel() {
         return;
     }
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 300,
-                                   ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(300, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(300.0f);
     ImGui::Begin("Reference Image", nullptr,
                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
                  ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize);
@@ -3064,10 +3090,7 @@ void Application::renderRefImageCalibrationPopup(int planeId) {
 void Application::renderBoundaryFillPanel() {
     if (!m_bfillActive) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(280, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(280.0f);
     ImGui::Begin("Boundary Fill", nullptr,
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize);
@@ -3102,10 +3125,7 @@ void Application::renderBoundaryFillPanel() {
 void Application::renderPatchPanel() {
     if (!m_patchActive) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 300,
-                                   ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(300, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(300.0f);
     ImGui::Begin("Patch", nullptr,
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize);
@@ -3611,10 +3631,7 @@ void Application::renderSnapSettingsPopup() {
 void Application::renderConstructionPlanePanel() {
     if (!m_planeOpActive) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(280, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(280.0f);
     ImGui::Begin("Construction Plane", nullptr,
         ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings |
@@ -3907,10 +3924,7 @@ void Application::beginRevolve() {
 void Application::renderRevolvePopup() {
     if (!m_revolveActive) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 320,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(320, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(320.0f);
     // The mode is chosen by the selection (sketch → Lathe, body → Revolve) in
     // beginRevolve(); the window title reflects it. No in-popup mode switch -
     // to change mode you change the selection.
@@ -4268,9 +4282,7 @@ void Application::cancelAlignFace() {
 
 void Application::renderAlignFacePopup() {
     if (!m_alignActive) return;
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 360,
-                                    ImGui::GetWindowPos().y + 50), ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(360, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(360.0f);
     ImGui::Begin("Lay Flat on Plane", nullptr,
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_AlwaysAutoResize);
@@ -4416,10 +4428,7 @@ void Application::renderAlignFacePopup() {
 void Application::renderRotatePlaneAboutAxisPopup() {
     if (!m_rotPlaneActive) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 340,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(340, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(340.0f);
     ImGui::Begin("Rotate Plane About Axis", nullptr,
         ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings |
@@ -4772,10 +4781,7 @@ void Application::applyRevolve() {
 void Application::renderConstructionAxisPanel() {
     if (!m_axisOpActive) return;
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 280,
-                                    ImGui::GetWindowPos().y + 50),
-                            ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(280, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(280.0f);
     ImGui::Begin("Construction Axis", nullptr,
         ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoSavedSettings |
@@ -5491,11 +5497,7 @@ void Application::renderPrimitivePopup() {
 
     // Same pinned top-right placement the IOp panels use, so the popup never
     // hides the viewport's body / selection.
-    ImGui::SetNextWindowPos(
-        ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 260,
-               ImGui::GetWindowPos().y + 50),
-        ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(260, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(260.0f);
     ImGui::Begin(titles[k], nullptr,
                  ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoSavedSettings |
@@ -5675,11 +5677,7 @@ void Application::cancelStlImport() {
 void Application::renderStlImportDialog() {
     if (!m_stlDialogActive) return;
 
-    ImGui::SetNextWindowPos(
-        ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - 300,
-               ImGui::GetWindowPos().y + 50),
-        ImGuiCond_Appearing);
-    ImGui::SetNextWindowSize(uiSz(300, 0), ImGuiCond_Appearing);
+    placeOpDialogTopRight(300.0f);
     ImGui::Begin("Import STL", nullptr,
                  ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoSavedSettings |

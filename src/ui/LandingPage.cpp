@@ -192,29 +192,34 @@ LandingPage::Action LandingPage::render() {
     ImGui::TextColored(dimText(), "v" MATERIALIZR_VERSION);
 
     {
-        const char* openLbl = ICON_IC_FOLDER "  Open File...";
-        const char* helpLbl = ICON_IC_HELP_CIRCLE "  Help";
-        const char* gearLbl = ICON_IC_SETTINGS "  Settings";
-        const char* backLbl = ICON_IC_XMARK;
+        // Icons are PUA glyphs; keep them outside the looked-up English text so
+        // the visible word can be translated while the icon stays intact.
+        const std::string openLbl = std::string(ICON_IC_FOLDER) + "  " +
+                                    materializr::tr("Open File...");
+        const std::string helpLbl = std::string(ICON_IC_HELP_CIRCLE) + "  " +
+                                    materializr::tr("Help");
+        const std::string gearLbl = std::string(ICON_IC_SETTINGS) + "  " +
+                                    materializr::tr("Settings");
+        const std::string backLbl = ICON_IC_XMARK;
         const ImGuiStyle& style = ImGui::GetStyle();
         int nBtns = m_canDismiss ? 4 : 3;
-        float rightW = ImGui::CalcTextSize(openLbl).x +
-                       ImGui::CalcTextSize(helpLbl).x +
-                       ImGui::CalcTextSize(gearLbl).x +
-                       (m_canDismiss ? ImGui::CalcTextSize(backLbl).x : 0.0f) +
+        float rightW = ImGui::CalcTextSize(openLbl.c_str()).x +
+                       ImGui::CalcTextSize(helpLbl.c_str()).x +
+                       ImGui::CalcTextSize(gearLbl.c_str()).x +
+                       (m_canDismiss ? ImGui::CalcTextSize(backLbl.c_str()).x : 0.0f) +
                        style.FramePadding.x * 2.0f * nBtns +
                        style.ItemSpacing.x * (nBtns - 1);
         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - rightW);
-        if (ImGui::Button(openLbl)) action.type = ActionType::OpenFileDialog;
+        if (ImGui::Button(openLbl.c_str())) action.type = ActionType::OpenFileDialog;
         ImGui::SameLine();
-        if (ImGui::Button(helpLbl)) action.type = ActionType::OpenHelp;
+        if (ImGui::Button(helpLbl.c_str())) action.type = ActionType::OpenHelp;
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", materializr::tr("User guide"));
         ImGui::SameLine();
-        if (ImGui::Button(gearLbl)) action.type = ActionType::OpenSettings;
+        if (ImGui::Button(gearLbl.c_str())) action.type = ActionType::OpenSettings;
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", materializr::tr("Settings"));
         if (m_canDismiss) {
             ImGui::SameLine();
-            if (ImGui::Button(backLbl)) action.type = ActionType::Dismiss;
+            if (ImGui::Button(backLbl.c_str())) action.type = ActionType::Dismiss;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s", materializr::tr("Back to the open project"));
         }
@@ -237,8 +242,9 @@ LandingPage::Action LandingPage::render() {
         else col = 0;
     };
 
-    if (tile("new", "New Project", 0, ICON_IC_PLUS, tileW, previewH,
-             "Start an empty project", false) == TileAct::Click)
+    if (tile("new", materializr::tr("New Project"), 0, ICON_IC_PLUS, tileW,
+             previewH, materializr::tr("Start an empty project"), false) ==
+        TileAct::Click)
         action.type = ActionType::NewProject;
     nextCell();
 

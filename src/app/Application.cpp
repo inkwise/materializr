@@ -1,6 +1,9 @@
 #include "ui/UiTheme.h"
 #include "gl_common.h"
 #include "platform_sdl.h"
+#if defined(__ANDROID__)
+#include "../android_platform.h"
+#endif
 
 #include <algorithm>
 #include <cstdlib>
@@ -211,6 +214,13 @@ namespace {
 void toggleSketchMode(SketchTool* tool, SketchToolMode mode) {
     if (!tool) return;
     tool->setMode(tool->getMode() == mode ? SketchToolMode::Select : mode);
+}
+
+// Settings > Rendering tiers. 185 is above every current panel, so it means
+// "no extra cap" while still keeping the sleep-path arithmetic valid.
+int frameRateForMode(int mode) {
+    static const int kFps[] = {60, 90, 120, 165, 185};
+    return kFps[std::clamp(mode, 0, 4)];
 }
 } // namespace
 
@@ -1127,6 +1137,20 @@ void Application::initImGui() {
         }
         // If nothing loaded, ImGui will lazily fall back to its baked-in default.
 
+        // Merge a CJK font so the Chinese catalogue's glyphs actually exist.
+        // JetBrains Mono has none, and ImGui 1.92's on-demand rasteriser can
+        // only draw glyphs the loaded font files contain - without this the
+        // whole Chinese UI renders as boxes. No GlyphRanges: merged sources
+        // are searched on demand, the same contract the accented Latin text
+        // already relies on. The range is disjoint from the icon PUA below.
+        std::string cjk = resolveBundledFont("MaterializrSansSC-UI.ttf");
+        if (fnt && !cjk.empty()) {
+            ImFontConfig cfg;
+            cfg.MergeMode = true;
+            if (io.Fonts->AddFontFromFileTTF(cjk.c_str(), 15.0f * uiScale, &cfg))
+                std::fprintf(stderr, "Loaded font: %s (CJK merge)\n", cjk.c_str());
+        }
+
         // Merge the Iconoir glyphs (PUA E000..) into the text font so any
         // string can inline an ICON_IC_* / MZ_ICON_* macro (im-touch shell
         // chrome; later the tool catalogue). Merging only works onto an
@@ -1845,20 +1869,9 @@ void Application::loadAppSettings() {
             m_language = idx;
             saveAppSettings();
         });
-    // Welcome screen: every launch until the user becomes a Supporter.
-    // Suppressed by --safe-mode - no asking for coffee while the user is
-    // recovering from a crash - and on the VERY FIRST launch, where the
-    // Getting Started tour (layout picker first) owns the moment; the welcome
-    // starts recurring from the second launch. Same marker the tutorial
-    // plugin writes.
-    const bool firstRun = [] {
-        const std::string base = platformPrefPath();
-        if (base.empty()) return false;
-        std::ifstream f(base + "tutorial_seen");
-        return !f.good();
-    }();
-    if (!m_supporter && !m_safeMode && !firstRun)
-        m_welcomeScreen->setVisible(true);
+    // Welcome/support prompt disabled: it used to open on every launch (until
+    // the user marked themselves a Supporter). Support remains reachable from
+    // Help > About Materializr.
 
     // Landing page vs. session restore. "Open last project on launch" now means
     // RESTORE MY TABS: with it on, every project that was open when you quit
@@ -1988,6 +2001,15 @@ void Application::applyRenderingSettings() {
     if (m_sketchRenderer) m_sketchRenderer->setLineWidth(m_sketchLineWidth);
 }
 
+void Application::applyFrameRateMode() {
+#if defined(__ANDROID__)
+    // The Activity chooses the closest supported display mode and calls
+    // Surface.setFrameRate. The render loop also caps itself to this tier, so
+    // a lower setting holds even if the display request is ignored.
+    androidSetFrameRateLimit(frameRateForMode(m_frameRateMode));
+#endif
+}
+
 void Application::meshQualityParams(float& deflection, float& angularDeflection) const {
     // Absolute linear deflection (mm) and angular deflection (radians). Lower
     // values produce denser, smoother meshes.
@@ -2028,6 +2050,7 @@ AppSettings Application::currentSettings() const {
     s.photoReflections = m_photoReflections;
     s.msaaSamples = m_msaaSamples;
     s.meshQuality = m_meshQuality;
+    s.frameRateMode = m_frameRateMode;
     s.selectionLineWidth = m_selectionLineWidth;
     s.sketchLineWidth = m_sketchLineWidth;
     s.sketchGridOpacity = m_sketchGridOpacity;
@@ -2149,6 +2172,8 @@ void Application::applyAppSettings(const AppSettings& s) {
     m_photoReflections = s.photoReflections;
     m_msaaSamples = s.msaaSamples;
     m_meshQuality = s.meshQuality;
+    m_frameRateMode = s.frameRateMode;
+    applyFrameRateMode();
     m_selectionLineWidth = s.selectionLineWidth;
     m_sketchLineWidth = s.sketchLineWidth;
     m_sketchGridOpacity = s.sketchGridOpacity;
@@ -8024,10 +8049,11 @@ void Application::run() {
             auto dropped = m_window->takeDroppedFiles();
             if (!dropped.empty()) handleDroppedFiles(dropped);
         }
-        // Start of this iteration's frame budget - read by the frame-rate cap
-        // at the bottom of the loop (measured after the event wait so the
-        // idle floor's own sleep doesn't count against the budget).
-        const uint32_t frameLoopStartMs = platformTicksMs();
+        // Start of this iteration's frame budget, measured after the event
+        // wait so the idle floor's own sleep doesn't count against it. Read by
+        // the frame-rate cap at the bottom of the loop (ns precision: 6.06 ms
+        // at 165 Hz is too fine for whole milliseconds).
+        const uint64_t frameLoopStartNs = platformTicksNs();
         // Significant events (click, key, scroll, resize, focus): 5 frames.
         // Trivial events (mouse motion, expose): 25 frames - at 60 fps that is
         // ~416 ms, enough for ImGui's default 300 ms hover-tooltip delay to fire
@@ -8761,21 +8787,24 @@ void Application::run() {
 
         m_window->swapBuffers();
 
-        // Hard frame-rate cap. Desktop GL blocks in swapBuffers on vsync, but
-        // iOS's presentRenderbuffer returns immediately (no CADisplayLink in
-        // this loop) - so any continuously-"active" state (a focused text
-        // field, a live preview) spun this loop at uncapped rate, starving
-        // the UIKit main runloop that keyboard raise, keyboard animation and
-        // touch delivery all run on: focusing ANY field froze the app.
-        // Sleeping out the remainder of a 60 Hz budget yields the main
-        // thread to the OS every frame; where vsync already paces us the
-        // remainder is ~0 and this is a no-op.
-        // Skipped when the user turned VSync off (desktop only; mobile has no
-        // such setting and keeps the cap).
+        // Frame cap. The user-selected tier bounds the loop; vsync is the
+        // other bound. Android/desktop block in swapBuffers, so a tier above
+        // the display rate is a no-op. iOS keeps its UIKit-safe 60 Hz floor:
+        // presentRenderbuffer returns immediately there (no CADisplayLink in
+        // this loop), and spinning faster starves the UIKit main runloop.
+        // Skipped when VSync is off (desktop only; mobile forces it on and
+        // keeps the cap).
         if (m_vsync) {
-            constexpr uint32_t kMinFrameMs = 16;
-            const uint32_t spent = platformTicksMs() - frameLoopStartMs;
-            if (spent < kMinFrameMs) platformSleepMs(kMinFrameMs - spent);
+            const uint64_t fps =
+                static_cast<uint64_t>(frameRateForMode(m_frameRateMode));
+            const uint64_t budgetNs = 1000000000ull / fps;
+#if defined(MZ_IOS)
+            const uint64_t sleepNs = std::max<uint64_t>(16000000ull, budgetNs);
+#else
+            const uint64_t sleepNs = budgetNs;
+#endif
+            const uint64_t spentNs = platformTicksNs() - frameLoopStartNs;
+            if (spentNs < sleepNs) platformSleepNs(sleepNs - spentNs);
         }
         }
         break;   // the inner loop's own break/exit conditions reached: done

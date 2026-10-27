@@ -12,4 +12,10 @@ namespace materializr {
 //     OCCT consults for unit/message/STEP/IGES data.
 void androidInitRuntime();
 
+// Ask MaterializrActivity to switch to the supported display refresh mode
+// closest to `fps` (Settings > Rendering). The native render loop separately
+// caps itself to the same value, so a lower tier holds even if the system
+// ignores the display request.
+void androidSetFrameRateLimit(int fps);
+
 } // namespace materializr

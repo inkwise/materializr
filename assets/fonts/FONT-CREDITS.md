@@ -17,6 +17,7 @@ are preserved below as required by their licenses.
 | Impact (Anton) | `Anton-Regular.ttf` | © The Anton Project Authors (Vernon Adams) | SIL OFL 1.1 |
 | Script (Pacifico) | `Pacifico-Regular.ttf` | © The Pacifico Project Authors (Vernon Adams) | SIL OFL 1.1 |
 | *(UI icons - not in the Text picker)* | `Iconoir.ttf` | Iconoir © Luca Burgio; font build © Silbad (iconoir-font) | MIT |
+| *(UI CJK fallback - not in the Text picker)* | `MaterializrSansSC-UI.ttf` | Subset of Noto Sans SC; © 2014-2021 Adobe, with Reserved Font Name 'Source' | SIL OFL 1.1 |
 
 License texts in `licenses/`:
 - `OFL-1.1.txt` - SIL Open Font License 1.1 (JetBrains Mono, Liberation, Comic Neue, Black Ops One, Anton, Pacifico).
@@ -24,6 +25,13 @@ License texts in `licenses/`:
 - `DejaVu-copyright.txt` - Bitstream Vera + Arev (DejaVu).
 - `Liberation-copyright.txt` - distribution copyright/license for the Liberation family.
 - `Iconoir-LICENSE.txt` - MIT (Iconoir icon glyph font; used by the im-touch UI shell, merged into the ImGui atlas - deliberately NOT offered by the Text tool).
+- `NotoSansSC-OFL.txt` - SIL OFL 1.1 copyright/license for the Noto Sans SC UI fallback.
+
+`MaterializrSansSC-UI.ttf` is a modified (weight-instanced and GB2312-subset)
+copy of Noto Sans SC, renamed because the upstream OFL reserves the name
+"Source". It is merged into the ImGui atlas as a fallback for the Chinese
+interface and is deliberately NOT offered by the Text tool. Regenerate it with
+`tools/build_cjk_font.py`; see that script for the exact character set.
 
 Liberation Serif and Liberation Sans are *metrically compatible* with Times New
 Roman and Arial respectively (matching widths and shapes); the real Microsoft

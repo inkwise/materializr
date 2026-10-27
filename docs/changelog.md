@@ -5,6 +5,13 @@ All notable changes to Materializr are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+
+- **Simplified Chinese interface.** The seventh UI language, listed as 简体中文
+  on the first-run language page and in Settings ▸ Appearance. Menus, tools and
+  help text are fully translated, and a bundled Noto Sans SC subset supplies the
+  CJK glyphs the UI font lacks.
+
 ## [1.7.5] - 2026-10-25
 
 Sketching and laser work: fill regions for engraving, rebindable keyboard

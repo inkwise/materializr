@@ -686,7 +686,7 @@ void Application::renderPluginMenuItems(const char* menuName) {
         std::string label = trim(m.path.substr(gt + 1));
         const bool enabled = !m.enabled || m.enabled(*m_pluginContext);
         const char* sc = m.shortcut.empty() ? nullptr : m.shortcut.c_str();
-        if (ImGui::MenuItem(label.c_str(), sc, false, enabled) && m.action)
+        if (ImGui::MenuItem(materializr::tr(label.c_str()), sc, false, enabled) && m.action)
             m.action(*m_pluginContext);
     }
 }

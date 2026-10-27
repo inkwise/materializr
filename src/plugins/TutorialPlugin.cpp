@@ -66,7 +66,7 @@ const Step kSteps[] = {
         {
             "View actions live in the View menu on the top menu bar.",
             "View actions live under the \xE2\x80\xA6 menu (top-left) > View.",
-            "View actions live behind the \xE2\x98\xB0 menu in the top bar."
+            "View actions live behind the \xE2\x89\xA1 menu in the top bar."
         }
     },
     {
@@ -143,7 +143,7 @@ const Step kSteps[] = {
             "Items is the first tab of the right panel; saving and exporting "
             "live under the \xE2\x80\xA6 menu > File.",
             "Tap the list icon in the top bar for your items; saving and "
-            "exporting live behind the \xE2\x98\xB0 menu."
+            "exporting live behind the \xE2\x89\xA1 menu."
         }
     },
     {
@@ -301,7 +301,9 @@ void renderLayoutPicker(bool& close) {
         ImVec2 pad = ImGui::GetStyle().FramePadding;
         const float wrapW = ImGui::GetContentRegionAvail().x - 2.0f * pad.x
                             - uiW(28.0f);
-        ImVec2 blurbSz = ImGui::CalcTextSize(kLayouts[i].blurb, nullptr,
+        const char* cardName = materializr::tr(kLayouts[i].name);
+        const char* cardBlurb = materializr::tr(kLayouts[i].blurb);
+        ImVec2 blurbSz = ImGui::CalcTextSize(cardBlurb, nullptr,
                                              false, wrapW);
         const float cardH = ImGui::GetTextLineHeightWithSpacing() +
                             blurbSz.y + 3.0f * pad.y;
@@ -321,12 +323,12 @@ void renderLayoutPicker(bool& close) {
             dl->AddCircleFilled(c, uiW(3.2f),
                                 ImGui::GetColorU32(ImGuiCol_CheckMark));
         ImVec2 txt(tl.x + pad.x + uiW(22.0f), tl.y + pad.y);
-        dl->AddText(txt, ImGui::GetColorU32(ImGuiCol_Text), kLayouts[i].name);
+        dl->AddText(txt, ImGui::GetColorU32(ImGuiCol_Text), cardName);
         ImVec2 blurbPos(txt.x + uiW(6.0f),
                         txt.y + ImGui::GetTextLineHeightWithSpacing());
         dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), blurbPos,
                     ImGui::GetColorU32(ImGuiCol_TextDisabled),
-                    kLayouts[i].blurb, nullptr, wrapW);
+                    cardBlurb, nullptr, wrapW);
         ImGui::PopID();
         ImGui::Spacing();
     }
@@ -381,7 +383,7 @@ void renderTutorial(materializr::PluginContext&) {
                                         ImVec2(FLT_MAX, vp->WorkSize.y * 0.92f));
 
     bool keepOpen = true;
-    if (ImGui::Begin("Getting Started###Tutorial", &keepOpen,
+    if (ImGui::Begin(materializr::tr("Getting Started###Tutorial"), &keepOpen,
                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
                      ImGuiWindowFlags_NoMove)) {
         if (g_onLanguage) {
@@ -402,10 +404,10 @@ void renderTutorial(materializr::PluginContext&) {
         }
 
         ImGui::TextDisabled(materializr::tr("Step %d of %d"), g_step + 1, kStepCount);
-        ImGui::SeparatorText(s.title);
+        ImGui::SeparatorText(materializr::tr(s.title));
 
         ImGui::PushTextWrapPos(0.0f); // wrap at the window's right edge
-        ImGui::TextUnformatted(s.body);
+        ImGui::TextUnformatted(materializr::tr(s.body));
 
         // Layout-specific location line: where to find this in the layout the
         // user picked on the first page. Highlighted - it's the line that makes
@@ -416,7 +418,8 @@ void renderTutorial(materializr::PluginContext&) {
                 ImGui::Spacing();
                 ImGui::PushStyleColor(ImGuiCol_Text,
                                       ImVec4(0.55f, 0.90f, 0.70f, 1.0f));
-                ImGui::TextWrapped(materializr::tr("In this layout:  %s"), s.where[li]);
+                ImGui::TextWrapped(materializr::tr("In this layout:  %s"),
+                                   materializr::tr(s.where[li]));
                 ImGui::PopStyleColor();
             }
         }
@@ -435,8 +438,13 @@ void renderTutorial(materializr::PluginContext&) {
                 ImGui::PopStyleColor();
             };
             // Active input first so the reader sees the relevant one immediately.
-            if (touch) { guide("Touch:", s.touch, true);  guide("Mouse:", s.mouse, false); }
-            else       { guide("Mouse:", s.mouse, true);  guide("Touch:", s.touch, false); }
+            if (touch) {
+                guide(materializr::tr("Touch:"), materializr::tr(s.touch), true);
+                guide(materializr::tr("Mouse:"), materializr::tr(s.mouse), false);
+            } else {
+                guide(materializr::tr("Mouse:"), materializr::tr(s.mouse), true);
+                guide(materializr::tr("Touch:"), materializr::tr(s.touch), false);
+            }
         }
         ImGui::PopTextWrapPos();
 
@@ -450,7 +458,7 @@ void renderTutorial(materializr::PluginContext&) {
             else            g_onPicker = true;   // back to the layout picker
         }
         ImGui::SameLine();
-        if (ImGui::Button(last ? "Finish" : "Next", uiSz(80, 0))) {
+        if (ImGui::Button(materializr::tr(last ? "Finish" : "Next"), uiSz(80, 0))) {
             if (last) close();
             else      g_step++;
         }
@@ -459,7 +467,7 @@ void renderTutorial(materializr::PluginContext&) {
         const float rightX = ImGui::GetWindowContentRegionMax().x - skipW;
         if (rightX > ImGui::GetCursorPosX()) ImGui::SameLine(rightX);
         else                                 ImGui::SameLine();
-        if (ImGui::Button(last ? "Close" : "Skip", uiSz(80, 0))) close();
+        if (ImGui::Button(materializr::tr(last ? "Close" : "Skip"), uiSz(80, 0))) close();
     }
     ImGui::End();
 

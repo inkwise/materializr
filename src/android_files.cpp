@@ -106,6 +106,16 @@ void callStaticVoidNoArg(const char* method) {
 
 } // namespace
 
+void androidSetFrameRateLimit(int fps) {
+    JNIEnv* env; jobject act; jclass cls;
+    if (!jniActivity(env, act, cls)) return;
+    jmethodID mid = env->GetStaticMethodID(cls, "setFrameRateLimit", "(I)V");
+    if (mid) env->CallStaticVoidMethod(cls, mid, static_cast<jint>(fps));
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(act);
+}
+
 bool mobileStartOpenDocument(const std::string& mimeCsv) {
     callStaticVoidString("nativeOpenDocument", mimeCsv);
     return true;
